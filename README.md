@@ -11,6 +11,6 @@ Built for the Xylem Global Student Innovation Challenge 2026 (Water Access).
 | NamJai Clip firmware (ESP32-CAM) | [`firmware/`](firmware) | v0.1 – builds in CI, not yet tested on hardware |
 | Server, database, leak detection, simulator | [`server/`](server) | v0.1 – tested on simulated villages |
 | Web app (PWA), dashboards, judges' demo, SMS simulator | [`web/`](web) | v0.1 – tested in Chromium on simulated villages |
-| Hardware: parts list, wiring, 3D-printed hood | `hardware/` | planned |
+| Hardware: parts list, wiring, 3D-printed hood, test plan | [`hardware/`](hardware) | v0.1 – hood rendered, not yet printed or tested |
 
 Open source under the MIT License.

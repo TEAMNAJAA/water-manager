@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 540" font-family="Inter, Arial, sans-serif" font-size="14">
+  <style>
+    .box { fill: #fcfcfb; stroke: #52514e; stroke-width: 2; }
+    .w5 { stroke: #d03b3b; stroke-width: 3; fill: none; }
+    .gnd { stroke: #0b0b0b; stroke-width: 3; fill: none; }
+    .sig { stroke: #2a78d6; stroke-width: 3; fill: none; }
+    .drn { stroke: #6250d6; stroke-width: 3; fill: none; }
+    .t { fill: #0b0b0b; }
+    .m { fill: #52514e; font-size: 12px; }
+    .h { font-weight: 700; font-size: 15px; }
+    .warn { fill: #a32323; font-size: 12px; font-weight: 700; }
+  </style>
+  <rect width="980" height="540" fill="#ffffff"/>
+  <text x="20" y="30" class="t h">NamJai Clip wiring (v0.1)</text>
+  <text x="20" y="50" class="m">red = 5 V · black = GND · blue = GPIO signal · violet = LED to MOSFET drain. The SD card slot is not used, so GPIO 12 and 13 are free.</text>
+
+  <rect class="box" rx="10" x="20" y="90" width="160" height="70"/>
+  <text x="100" y="120" text-anchor="middle" class="t h">5 V adapter</text>
+  <text x="100" y="140" text-anchor="middle" class="m">pump-house mains, ≥ 2 A</text>
+
+  <rect class="box" rx="10" x="230" y="80" width="190" height="90"/>
+  <text x="325" y="110" text-anchor="middle" class="t h">18650 UPS module</text>
+  <text x="325" y="130" text-anchor="middle" class="m">charges the cell, gives 5 V,</text>
+  <text x="325" y="148" text-anchor="middle" class="m">keeps running in a power cut</text>
+
+  <rect class="box" rx="10" x="490" y="70" width="210" height="190"/>
+  <text x="595" y="98" text-anchor="middle" class="t h">ESP32-CAM (AI-Thinker)</text>
+  <text x="502" y="140" class="t">5V</text>
+  <text x="502" y="175" class="t">GND</text>
+  <text x="625" y="205" class="t">GPIO 13</text>
+  <text x="625" y="240" class="t">GPIO 12</text>
+  <text x="502" y="240" class="m">GPIO 4 flash LED: off</text>
+
+  <path class="w5" d="M180 125 H230"/>
+  <path class="w5" d="M420 115 H450 V135 H490"/>
+  <path class="gnd" d="M420 150 H440 V170 H490"/>
+
+  <rect class="box" rx="10" x="760" y="170" width="200" height="74"/>
+  <text x="860" y="194" text-anchor="middle" class="t h">LED A driver</text>
+  <text x="860" y="212" text-anchor="middle" class="m">AO3400 N-MOSFET</text>
+  <text x="860" y="230" text-anchor="middle" class="m">100 Ω gate · 100 kΩ gate–GND</text>
+
+  <rect class="box" rx="10" x="760" y="290" width="200" height="90"/>
+  <text x="860" y="314" text-anchor="middle" class="t h">LED B driver</text>
+  <text x="860" y="332" text-anchor="middle" class="m">AO3400 N-MOSFET</text>
+  <text x="860" y="350" text-anchor="middle" class="m">100 Ω gate</text>
+  <text x="860" y="368" text-anchor="middle" class="warn">10 kΩ gate–GND (required)</text>
+
+  <path class="sig" d="M700 200 H760"/>
+  <path class="sig" d="M700 235 H730 V320 H760"/>
+
+  <rect class="box" rx="10" x="430" y="330" width="250" height="110"/>
+  <text x="555" y="356" text-anchor="middle" class="t h">2 × white 5 mm LED</text>
+  <text x="555" y="376" text-anchor="middle" class="m">5 V → 100 Ω → LED → MOSFET drain</text>
+  <text x="555" y="394" text-anchor="middle" class="m">≈ 20 mA each (check the LED datasheet)</text>
+  <text x="555" y="412" text-anchor="middle" class="m">in the hood bosses, 45° to the glass,</text>
+  <text x="555" y="430" text-anchor="middle" class="m">behind a 1 mm diffuser sheet</text>
+
+  <path class="w5" d="M450 135 V330"/>
+  <path class="drn" d="M680 360 H745 V230 H760"/>
+  <path class="drn" d="M680 400 H752 V370 H760"/>
+  <path class="gnd" d="M960 207 H970 V470"/>
+  <path class="gnd" d="M960 335 H970"/>
+  <path class="gnd" d="M970 470 H415 V160 H440"/>
+
+  <text x="20" y="500" class="m">GPIO 12 is a boot strap pin: if it is high at power-on the ESP32 does not start. Keep the 10 kΩ pull-down on the LED B gate.</text>
+  <text x="20" y="520" class="m">Put the electronics in a manufacturer-rated IP65 enclosure. The 3D-printed hood is not waterproof and must not be called IP65.</text>
+</svg>
