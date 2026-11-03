@@ -231,7 +231,8 @@ void heartbeat() {
       prefs.putUInt("interval", interval);
       nextEpoch = 0;
     }
-    ledDuty = constrain(field(reply, "led", ledDuty), 0, 255);
+    uint8_t led = constrain(field(reply, "led", ledDuty), 0, 255);
+    if (led != ledDuty) prefs.putUChar("led", ledDuty = led);
     captureNow = field(reply, "capture_now", 0);
   }
 }
