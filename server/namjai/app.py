@@ -246,17 +246,29 @@ def meter_readings(mid: int, limit: int = 50, db=Depends(get_db)):
     return j([reading_dict(r) for r in rs])
 
 
+def may_read(p, m, db):
+    if p.role in ("caretaker", "committee", "admin"):
+        if p.role != "admin" and p.village_id != m.village_id:
+            raise HTTPException(403, "other village")
+        return
+    if m.kind == "main" and p.village_id == m.village_id:
+        return
+    if p.meter_id != m.id:
+        raise HTTPException(403, "you can only read your own meter")
+
+
 @app.post("/api/meters/{mid}/photo", status_code=201)
-async def meter_photo(mid: int, file: UploadFile = File(...), taken_at: datetime | None = None, by: str | None = None,
-                      p: Person | None = Depends(C.current), db=Depends(get_db)):
+async def meter_photo(mid: int, file: UploadFile = File(...), taken_at: datetime | None = None, roi: str | None = None,
+                      p: Person = Depends(C.need()), db=Depends(get_db)):
     m = find(db, Meter, mid)
+    may_read(p, m, db)
     when = taken_at.replace(tzinfo=None) if taken_at else utcnow()
-    by = f"person:{p.id}" if p else by
+    guide = [float(v) for v in roi.split(",")] if roi else None
     try:
-        r, result = S.ingest_phone_photo(db, m, await file.read(), when, by)
+        r, result = S.ingest_phone_photo(db, m, await file.read(), when, f"person:{p.id}", guide)
     except ValueError as e:
         raise HTTPException(422, str(e))
-    return j({**reading_dict(r), "quality": result.quality, "cells": result.cells,
+    return j({**reading_dict(r), "quality": result.quality, "cells": result.cells, "digits": result.digits,
               "alternative": round(result.alternative * m.scale, 4) if result.alternative is not None else None})
 
 
@@ -269,10 +281,11 @@ class ValueIn(BaseModel):
 
 
 @app.post("/api/meters/{mid}/readings", status_code=201)
-def add_reading(mid: int, body: ValueIn, db=Depends(get_db)):
+def add_reading(mid: int, body: ValueIn, p: Person = Depends(C.need("caretaker", "committee", "admin")), db=Depends(get_db)):
     m = find(db, Meter, mid)
+    may_read(p, m, db)
     when = body.taken_at.replace(tzinfo=None) if body.taken_at else utcnow()
-    r, issues = S.add_value(db, m, body.value, when, body.source, body.by, body.force)
+    r, issues = S.add_value(db, m, body.value, when, body.source, f"person:{p.id}", body.force)
     if r is None:
         raise HTTPException(409, {"issues": issues})
     return j(reading_dict(r))
@@ -280,18 +293,23 @@ def add_reading(mid: int, body: ValueIn, db=Depends(get_db)):
 
 class ConfirmIn(BaseModel):
     value: float
-    by: str | None = None
     force: bool = False
 
 
 @app.post("/api/readings/{rid}/confirm")
-def confirm_reading(rid: int, body: ConfirmIn, db=Depends(get_db)):
+def confirm_reading(rid: int, body: ConfirmIn, p: Person = Depends(C.need()), db=Depends(get_db)):
     r = find(db, Reading, rid)
-    by = r.confirmed_by if (r.confirmed_by or "").startswith("person:") else body.by
-    issues = S.confirm(db, r, body.value, by, body.force)
+    m = db.get(Meter, r.meter_id)
+    staff = p.role in ("caretaker", "committee", "admin")
+    if not staff and r.confirmed_by != f"person:{p.id}":
+        raise HTTPException(403, "only the person who took the photo or a caretaker can confirm")
+    if staff:
+        may_read(p, m, db)
+    by = r.confirmed_by if (r.confirmed_by or "").startswith("person:") else f"person:{p.id}"
+    issues = S.confirm(db, r, body.value, by, body.force and staff)
     if issues:
         raise HTTPException(409, {"issues": issues})
-    C.award_main_photo(db, r, db.get(Meter, r.meter_id))
+    C.award_main_photo(db, r, m)
     return j(reading_dict(r))
 
 

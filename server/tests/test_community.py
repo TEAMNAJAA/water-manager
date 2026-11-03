@@ -124,3 +124,28 @@ def test_network_view(client, demo):
     n = client.get(f"/api/networks/{nid}").json()
     assert len(n["villages"]) == 4 and n["depots"] and len(n["technicians"]) == 3
     assert {v["level"] for v in n["villages"]} == {"green", "yellow", "red"}
+
+
+def test_sms_commands(client, demo):
+    a = demo["Village A"]
+    phone = client.get("/api/demo/phones").json()[0]["phone"]
+    assert "not registered" in client.post("/api/sms/inbound", json={"from": "0999999999", "text": "STATUS"}).json()["reply"]
+    assert "OK" in client.post("/api/sms/inbound", json={"from": phone, "text": "status"}).json()["reply"]
+    assert "ระบบน้ำ" in client.post("/api/sms/inbound", json={"from": phone, "text": "สถานะ"}).json()["reply"]
+    assert "looks wrong" in client.post("/api/sms/inbound", json={"from": phone, "text": "READ 1"}).json()["reply"]
+    bill = client.post("/api/sms/inbound", json={"from": phone, "text": "BILL"}).json()["reply"]
+    assert "THB" in bill
+    rep = client.post("/api/sms/inbound", json={"from": phone, "text": "REPORT LEAK near the school"}).json()["reply"]
+    assert "received" in rep
+    jobs = client.get(f"/api/villages/{a.id}/repairs").json()
+    assert any(j["source"] == "sms" and j["kind"] == "leak" and j["note"] == "near the school" for j in jobs)
+
+
+def test_demo_ocr(client):
+    import cv2
+    import numpy as np
+    from namjai_ocr import synth
+    img, box, value, n = synth.sample_counter(np.random.default_rng(4), synth.fonts(synth.TRAIN_FONTS), "clear", False, 5)
+    r = client.post("/api/demo/ocr", params={"n_digits": 5, "roi": ",".join(str(int(v)) for v in box)},
+                    files={"file": ("m.jpg", cv2.imencode(".jpg", img)[1].tobytes(), "image/jpeg")}).json()
+    assert abs(r["value"] - value) <= 1 and "quality" in r

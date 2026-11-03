@@ -185,17 +185,17 @@ THANKS = ["Thank you for helping my family this month.", "We will pay it forward
           "Thank you, kind neighbours. Water is life."]
 
 
-def person(db, village, name, role, meter=None, demo=False, network_id=None, lat=None, lon=None, rng=None):
+def person(db, village, name, role, meter=None, demo=False, network_id=None, lat=None, lon=None, phone=None):
     p = Person(village_id=village.id if village else None, network_id=network_id, name=name, role=role,
-               meter_id=meter.id if meter else None, demo=demo, lat=lat, lon=lon)
+               meter_id=meter.id if meter else None, demo=demo, lat=lat, lon=lon, phone=phone)
     db.add(p)
     db.flush()
     return p
 
 
 def seed_community(db, v, houses, rng, now, network_id):
-    resident = person(db, v, "Malee", "resident", houses[0], demo=True)
-    caretaker = person(db, v, "Somchai", "caretaker", houses[1], demo=True)
+    resident = person(db, v, "Malee", "resident", houses[0], demo=True, phone=f"080000{v.id}001")
+    caretaker = person(db, v, "Somchai", "caretaker", houses[1], demo=True, phone=f"080000{v.id}002")
     committee = [person(db, v, "Wichai", "committee", houses[2], demo=True), person(db, v, "Pranee", "committee", houses[3])]
     others = [person(db, v, NAMES[4 + i % (len(NAMES) - 4)], "resident", h) for i, h in enumerate(houses[4:16])]
     add = lambda *a, **k: C.add_entry(db, v, *a, **k)

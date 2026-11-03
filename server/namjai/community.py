@@ -635,3 +635,101 @@ def admin_depot(body: DepotIn, db=Depends(get_db)):
     db.add(d)
     db.commit()
     return {"id": d.id}
+
+
+SMS_KINDS = {"NOWATER": "no_water", "LEAK": "leak", "WET": "wet_ground", "TAP": "broken_tap", "LOW": "low_pressure", "OTHER": "other",
+             "ไม่ไหล": "no_water", "รั่ว": "leak", "แฉะ": "wet_ground", "ก๊อก": "broken_tap", "เบา": "low_pressure"}
+SMS_WORDS = {"READ": "read", "R": "read", "อ่าน": "read", "REPORT": "report", "แจ้ง": "report", "STATUS": "status", "สถานะ": "status",
+             "BILL": "bill", "บิล": "bill", "HELP": "help", "?": "help", "ช่วย": "help"}
+SMS_TEXT = {
+    "en": {"unknown": "This number is not registered with NamJai. Ask your caretaker.",
+           "help": "NamJai SMS: READ 01234 = meter reading | REPORT LEAK soi 2 = report a problem (NOWATER/LEAK/WET/TAP/LOW) | STATUS | BILL",
+           "read_ok": "Thank you. Reading {v} saved.", "audit": " Please also send a photo of your meter when you can.",
+           "read_bad": "Reading {v} looks wrong ({why}). Please check the number and send again.",
+           "no_meter": "No meter is linked to this number.", "report_ok": "Report #{id} received. You can follow it in the app or reply STATUS.",
+           "status": {"green": "Water system OK.", "yellow": "Watching a possible problem.", "red": "Leak found. Repair team notified."},
+           "bill": "Last bill: {m3} m3, {amount} THB, due {due}: {status}.", "no_bill": "No bill yet."},
+    "th": {"unknown": "เบอร์นี้ยังไม่ได้ลงทะเบียนกับน้ำใจ ติดต่อผู้ดูแลระบบน้ำ",
+           "help": "น้ำใจ SMS: อ่าน 01234 = ส่งเลขมิเตอร์ | แจ้ง รั่ว ซอย 2 = แจ้งปัญหา (ไม่ไหล/รั่ว/แฉะ/ก๊อก/เบา) | สถานะ | บิล",
+           "read_ok": "ขอบคุณค่ะ บันทึกเลข {v} แล้ว", "audit": " ถ้าสะดวกช่วยส่งรูปมิเตอร์ด้วยนะคะ",
+           "read_bad": "เลข {v} ดูไม่ถูกต้อง ({why}) กรุณาตรวจแล้วส่งใหม่", "no_meter": "เบอร์นี้ยังไม่ผูกกับมิเตอร์",
+           "report_ok": "รับเรื่อง #{id} แล้ว ติดตามได้ในแอป หรือพิมพ์ สถานะ",
+           "status": {"green": "ระบบน้ำปกติ", "yellow": "กำลังเฝ้าดูปัญหา", "red": "พบท่อรั่ว แจ้งช่างแล้ว"},
+           "bill": "บิลล่าสุด {m3} ลบ.ม. {amount} บาท ครบกำหนด {due}: {status}", "no_bill": "ยังไม่มีบิล"},
+}
+
+
+class SmsIn(BaseModel):
+    sender: str = Field(alias="from")
+    text: str = Field(max_length=160)
+
+
+@router.post("/sms/inbound")
+def sms_inbound(body: SmsIn, x_sms_secret: str = Header(""), db=Depends(get_db)):
+    secret = os.getenv("SMS_SECRET")
+    if secret and not hmac.compare_digest(secret, x_sms_secret):
+        raise HTTPException(401, "bad gateway secret")
+    lang = "th" if any("฀" <= ch <= "๿" for ch in body.text) else "en"
+    t = SMS_TEXT[lang]
+    p = db.scalars(select(Person).where(Person.phone == body.sender.replace(" ", "").replace("-", ""))).first()
+    if p is None:
+        return {"reply": t["unknown"]}
+    words = body.text.strip().split()
+    cmd = SMS_WORDS.get(words[0].upper() if words else "", "help")
+    if cmd == "read":
+        from . import services as S
+        m = db.get(Meter, p.meter_id) if p.meter_id else None
+        if m is None:
+            return {"reply": t["no_meter"]}
+        raw = "".join(ch for ch in " ".join(words[1:]) if ch.isdigit() or ch == ".")
+        if not raw:
+            return {"reply": t["help"]}
+        value = float(raw)
+        r, issues = S.add_value(db, m, value, utcnow(), "sms", f"person:{p.id}")
+        if r is None:
+            return {"reply": t["read_bad"].format(v=raw, why=", ".join(issues))}
+        audit = int(hashlib.sha256(f"{r.id}".encode()).hexdigest(), 16) % 10 == 0
+        if audit:
+            r.issues = [*r.issues, "audit"]
+            db.commit()
+        return {"reply": t["read_ok"].format(v=raw) + (t["audit"] if audit else "")}
+    if cmd == "report":
+        kind = SMS_KINDS.get(words[1].upper() if len(words) > 1 else "", "other")
+        note = " ".join(words[2:] if len(words) > 1 and words[1].upper() in SMS_KINDS else words[1:]) or None
+        j = RepairJob(village_id=p.village_id, reported_by=p.id, kind=kind, source="sms", note=note,
+                      history=[{"at": iso(utcnow()), "status": "open", "by": first_name(p)}])
+        db.add(j)
+        db.commit()
+        return {"reply": t["report_ok"].format(id=j.id)}
+    if cmd == "status":
+        from . import services as S
+        return {"reply": t["status"][S.village_level(S.open_alerts(db, p.village_id))]}
+    if cmd == "bill":
+        b = db.scalars(select(Bill).where(Bill.meter_id == p.meter_id).order_by(Bill.issued.desc()).limit(1)).first() if p.meter_id else None
+        if b is None:
+            return {"reply": t["no_bill"]}
+        return {"reply": t["bill"].format(m3=b.m3, amount=b.amount, due=b.due.date().isoformat(), status=b.status)}
+    return {"reply": t["help"]}
+
+
+@router.get("/demo/phones")
+def demo_phones(db=Depends(get_db)):
+    ps = db.scalars(select(Person).where(Person.demo.is_(True), Person.phone.is_not(None))).all()
+    villages = {v.id: v.name for v in db.scalars(select(Village))}
+    return [{"phone": p.phone, "name": p.name, "role": p.role, "village": villages.get(p.village_id)} for p in ps]
+
+
+@router.post("/demo/ocr")
+async def demo_ocr(file: UploadFile = File(...), n_digits: int = 5, roi: str | None = None):
+    import cv2
+    import numpy as np
+    from namjai_ocr import read_counter
+    data = await file.read()
+    if len(data) > 4_000_000:
+        raise HTTPException(413, "photo too large")
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(422, "not an image")
+    guide = [float(v) for v in roi.split(",")] if roi else None
+    r = read_counter(img, max(3, min(n_digits, 9)), roi=guide)
+    return {k: v for k, v in r.to_dict().items() if k != "auto_ok"}

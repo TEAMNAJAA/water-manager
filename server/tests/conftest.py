@@ -33,3 +33,12 @@ def client(fresh):
 def session(fresh):
     with D.Session() as s:
         yield s
+
+
+def person(client, village_id, role="caretaker", meter_id=None, phone=None):
+    import random
+    phone = phone or f"09{random.randint(10**7, 10**8 - 1)}"
+    client.post("/api/admin/people", json={"village_id": village_id, "name": f"{role} test", "phone": phone, "pin": "1234",
+                                           "role": role, "meter_id": meter_id}, headers=ADMIN)
+    tok = client.post("/api/login", json={"phone": phone, "pin": "1234"}).json()["token"]
+    return {"Authorization": f"Bearer {tok}"}

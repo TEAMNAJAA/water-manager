@@ -7,7 +7,7 @@ from namjai.models import Village
 from namjai.sim import ClipSim, VillageModel, seed_demo
 from namjai_ocr import synth
 
-from conftest import ADMIN
+from conftest import ADMIN, person
 
 
 def setup_village(client, roi=None):
@@ -42,7 +42,9 @@ def test_clip_end_to_end(client):
     pending = client.get("/api/readings/pending", params={"village_id": vid}).json()
     assert len(pending) == 1 and pending[0]["status"] == "pending"
     truth = round(int(model.main_at(t) / 0.1) * 0.1, 1)
-    assert client.post(f"/api/readings/{pending[0]['id']}/confirm", json={"value": truth, "by": "caretaker"}).status_code == 200
+    assert client.post(f"/api/readings/{pending[0]['id']}/confirm", json={"value": truth}).status_code == 401
+    staff = person(client, vid)
+    assert client.post(f"/api/readings/{pending[0]['id']}/confirm", json={"value": truth}, headers=staff).status_code == 200
     statuses = []
     for h in range(1, 25):
         when = t + timedelta(hours=h)
@@ -64,11 +66,18 @@ def test_phone_photo_needs_confirmation(client):
     rng = np.random.default_rng(1)
     img, box, value, n = synth.sample_counter(rng, synth.fonts(synth.TRAIN_FONTS), "clear", True, 5)
     jpeg = cv2.imencode(".jpg", img)[1].tobytes()
-    r = client.post(f"/api/meters/{mid}/photo", files={"file": ("m.jpg", jpeg, "image/jpeg")})
+    other = client.post("/api/admin/meters", json={"village_id": vid, "kind": "house", "label": "H2"}, headers=ADMIN).json()["id"]
+    me = person(client, vid, "resident", mid)
+    assert client.post(f"/api/meters/{mid}/photo", files={"file": ("m.jpg", jpeg, "image/jpeg")}).status_code == 401
+    assert client.post(f"/api/meters/{other}/photo", files={"file": ("m.jpg", jpeg, "image/jpeg")}, headers=me).status_code == 403
+    x0, y0, x1, y1 = [int(v) for v in box]
+    r = client.post(f"/api/meters/{mid}/photo", params={"roi": f"{x0},{y0},{x1},{y1}"}, files={"file": ("m.jpg", jpeg, "image/jpeg")}, headers=me)
     assert r.status_code == 201 and r.json()["status"] == "pending" and r.json()["suggested"] is not None
-    ok = client.post(f"/api/readings/{r.json()['id']}/confirm", json={"value": value})
+    ok = client.post(f"/api/readings/{r.json()['id']}/confirm", json={"value": value}, headers=me)
     assert ok.json()["status"] == "confirmed"
-    bad = client.post(f"/api/meters/{mid}/readings", json={"value": value - 5})
+    staff = person(client, vid)
+    assert client.post(f"/api/meters/{mid}/readings", json={"value": value - 5}, headers=me).status_code == 403
+    bad = client.post(f"/api/meters/{mid}/readings", json={"value": value - 5}, headers=staff)
     assert bad.status_code == 409 and "decreased" in bad.json()["detail"]["issues"]
 
 

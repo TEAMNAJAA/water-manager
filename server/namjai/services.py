@@ -45,10 +45,24 @@ def series(db, meter_id, since=None, until=None):
     return A.Series(db.execute(q).all())
 
 
-def run_ocr(meter, img, prev, taken_at):
+def expand(roi, img, k):
+    h, w = img.shape[:2]
+    x0, y0, x1, y1 = roi
+    dx, dy = (x1 - x0) * k, (y1 - y0) * k
+    return [max(0, x0 - dx), max(0, y0 - dy), min(w, x1 + dx), min(h, y1 + dy)]
+
+
+def run_ocr(meter, img, prev, taken_at, guide=None):
     units = round(prev.value / meter.scale) if prev else None
     hours = (taken_at - prev.taken_at).total_seconds() / 3600 if prev else None
-    return read_counter(img, meter.n_digits, roi=meter.roi, prev=units, hours=hours, max_flow=meter.max_flow / meter.scale)
+    args = dict(prev=units, hours=hours, max_flow=meter.max_flow / meter.scale)
+    if guide is None:
+        return read_counter(img, meter.n_digits, roi=meter.roi, **args)
+    tries = [read_counter(img, meter.n_digits, roi=guide, **args)]
+    x0, y0, x1, y1 = [int(v) for v in expand(guide, img, 0.2)]
+    loose = read_counter(img[y0:y1, x0:x1], meter.n_digits, **args)
+    tries.append(loose)
+    return max(tries, key=lambda r: (not r.issues, r.confidence))
 
 
 def _rank(status, confidence):
@@ -88,12 +102,12 @@ def ingest_clip_photo(db, device, jpeg, seq, light, taken_at, estimated):
     return reading
 
 
-def ingest_phone_photo(db, meter, jpeg, taken_at, by=None):
+def ingest_phone_photo(db, meter, jpeg, taken_at, by=None, guide=None):
     img = decode(jpeg)
     if img is None:
         raise ValueError("not an image")
     prev = last_trusted(db, meter.id, taken_at)
-    result = run_ocr(meter, img, prev, taken_at)
+    result = run_ocr(meter, img, prev, taken_at, guide)
     photo = Photo(meter_id=meter.id, taken_at=taken_at, jpeg=jpeg, ocr=result.to_dict())
     db.add(photo)
     db.flush()
