@@ -17,9 +17,9 @@ Built for the Xylem Global Student Innovation Challenge 2026 (Water Access).
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
-pip install -r server/requirements-dev.txt
-cd server && SEED_DEMO=1 uvicorn namjai.app:app --port 8000     # API + simulated villages
-cd web && npm ci && npm run dev                                 # http://localhost:5173/demo
+cd server && pip install -r requirements-dev.txt
+SEED_DEMO=1 uvicorn namjai.app:app --port 8000 &                # API + simulated villages
+cd ../web && npm ci && npm run dev                              # http://localhost:5173/demo
 ```
 
 ## How it fits together

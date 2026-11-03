@@ -1,0 +1,14 @@
+{
+  "name": "NamJai",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" }
+  },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postStartCommand": "bash .devcontainer/start.sh",
+  "forwardPorts": [5173, 8000],
+  "portsAttributes": {
+    "5173": { "label": "NamJai app", "onAutoForward": "openBrowser" },
+    "8000": { "label": "NamJai API", "onAutoForward": "silent" }
+  }
+}

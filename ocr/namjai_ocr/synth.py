@@ -30,7 +30,7 @@ def fonts(names):
 
 @lru_cache(maxsize=512)
 def _font(path, size):
-    return ImageFont.truetype(path, size)
+    return ImageFont.truetype(path, size) if path else ImageFont.load_default(size)
 
 
 def positions(value, n, frac):
@@ -47,7 +47,7 @@ def style(rng, font_paths):
     ink = tuple(int(v) for v in rng.integers(15, 55, 3)) if dark else tuple(int(v) for v in rng.integers(215, 250, 3))
     paper = tuple(int(v) for v in rng.integers(210, 248, 3)) if dark else tuple(int(v) for v in rng.integers(15, 50, 3))
     return {
-        "font": font_paths[rng.integers(len(font_paths))],
+        "font": font_paths[rng.integers(len(font_paths))] if font_paths else None,
         "ink": ink,
         "paper": paper,
         "red": int(rng.choice([0, 0, 1, 2, 3])),
