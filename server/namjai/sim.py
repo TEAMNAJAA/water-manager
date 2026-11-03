@@ -12,6 +12,8 @@ from namjai_ocr import synth
 from . import db as D
 from . import services as S
 from . import community as C
+from sqlalchemy import func, select
+
 from .models import Depot, Device, FundEntry, Heartbeat, Meter, Network, Person, Reading, RepairJob, ThankYou, Village, Zone, utcnow
 
 PROFILE = np.array([0.15, 0.1, 0.08, 0.08, 0.15, 0.6, 1.8, 2.2, 1.6, 1.1, 0.9, 1.0,
@@ -285,11 +287,69 @@ def seed_demo(db, days=150, houses=60, now=None, community=True):
             lk.append(Leak(when, m3h, house=3 if kind == "house" else None))
         model = VillageModel(houses, start, days + 1, seed=100 + k, leaks=lk)
         v, main, hs, dev = seed_village(db, name, model, lat=lat, lon=lon, outages=outages, silent=silent, now=now, network_id=net.id)
+        v.settings = {**(v.settings or {}), "sim": {"seed": 100 + k, "start": start.isoformat(), "days": days + 1, "houses": houses, "silent": silent,
+                                                      "seeded": now.isoformat(), "leaks": [{"start": l.start.isoformat(), "m3h": l.m3h, "house": l.house} for l in lk]}}
         if community:
             seed_community(db, v, hs, rng, now, net.id)
         S.evaluate(db, v, now)
         out.append(v)
     return out
+
+
+_models = {}
+
+
+def sim_model(v):
+    c = v.settings["sim"]
+    key = (v.id, c["seeded"])
+    if key not in _models:
+        _models.clear() if len(_models) > 16 else None
+        _models[key] = VillageModel(c["houses"], datetime.fromisoformat(c["start"]), c["days"], seed=c["seed"],
+                                    leaks=[Leak(datetime.fromisoformat(l["start"]), l["m3h"], house=l["house"]) for l in c["leaks"]])
+    return _models[key]
+
+
+def reset_demo(now=None):
+    D.Base.metadata.drop_all(D.engine)
+    D.init()
+    with D.Session() as db:
+        seed_demo(db, now=now)
+
+
+def demo_tick(db, now=None, max_age_h=20):
+    now = (now or utcnow()).replace(minute=0, second=0, microsecond=0)
+    villages = db.scalars(select(Village)).all()
+    sims = [v for v in villages if v.simulated and (v.settings or {}).get("sim")]
+    if not villages:
+        seed_demo(db, now=now)
+        return "seeded"
+    if not sims:
+        return "none"
+    if now - datetime.fromisoformat(sims[0].settings["sim"]["seeded"]) > timedelta(hours=max_age_h) and all(v.simulated for v in villages):
+        db.close()
+        reset_demo(now)
+        return "reseeded"
+    for v in sims:
+        if v.settings["sim"].get("silent"):
+            continue
+        model = sim_model(v)
+        main = next(m for m in v.meters if m.kind == "main")
+        dev = db.scalars(select(Device).where(Device.meter_id == main.id)).first()
+        last = db.scalar(select(func.max(Reading.taken_at)).where(Reading.meter_id == main.id))
+        seq = db.scalar(select(func.max(Reading.seq)).where(Reading.device_id == dev.id)) or 0
+        t = (last or now - timedelta(hours=1)) + timedelta(hours=1)
+        while t <= now:
+            seq += 1
+            db.add(Reading(meter_id=main.id, device_id=dev.id, seq=seq, taken_at=t, value=round(floor_to(model.main_at(t), 0.1), 1),
+                           confidence=0.99, source="clip", status="auto"))
+            dev.last_seen = t
+            t += timedelta(hours=1)
+        if dev.last_seen and dev.last_seen > (last or datetime.min):
+            db.add(Heartbeat(device_id=dev.id, at=dev.last_seen, data={"fw": "sim", "camera": True, "queue": 0}))
+    db.commit()
+    for v in sims:
+        S.evaluate(db, v, now)
+    return "ticked"
 
 
 def main():

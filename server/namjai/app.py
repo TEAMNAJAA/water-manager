@@ -29,9 +29,20 @@ def j(x):
     return x
 
 
+DEMO = bool(os.getenv("SEED_DEMO"))
+
+
+def demo_tick():
+    from .sim import demo_tick as tick
+    with D.Session() as db:
+        tick(db)
+
+
 async def evaluator():
     while True:
         await asyncio.sleep(config.EVAL_EVERY_S)
+        if DEMO:
+            await asyncio.to_thread(demo_tick)
         with D.Session() as db:
             S.evaluate_all(db)
 
@@ -39,6 +50,8 @@ async def evaluator():
 @asynccontextmanager
 async def lifespan(app):
     D.init()
+    if DEMO:
+        demo_tick()
     task = None if os.getenv("DISABLE_SCHEDULER") else asyncio.create_task(evaluator())
     yield
     if task:

@@ -149,3 +149,18 @@ def test_demo_ocr(client):
     r = client.post("/api/demo/ocr", params={"n_digits": 5, "roi": ",".join(str(int(v)) for v in box)},
                     files={"file": ("m.jpg", cv2.imencode(".jpg", img)[1].tobytes(), "image/jpeg")}).json()
     assert abs(r["value"] - value) <= 1 and "quality" in r
+
+
+def test_demo_keeps_running(client, session):
+    from datetime import timedelta
+    from namjai import services as S
+    from namjai.models import Reading, Village
+    from namjai.sim import demo_tick, seed_demo
+    seed_demo(session, days=100, houses=20, now=NOW)
+    before = session.query(Reading).count()
+    assert demo_tick(session, NOW + timedelta(hours=5)) == "ticked"
+    assert session.query(Reading).count() == before + 3 * 5
+    levels = {v.name: S.village_level(S.open_alerts(session, v.id)) for v in session.query(Village)}
+    assert levels["Village B"] == "red" and levels["Village A (pilot)"] == "green"
+    assert not any(a.kind == "clip_silent" for v in session.query(Village) if v.name != "Village D" for a in S.open_alerts(session, v.id))
+    assert demo_tick(session, NOW + timedelta(hours=21)) == "reseeded"
