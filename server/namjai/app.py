@@ -344,6 +344,29 @@ def confirm_reading(rid: int, body: ConfirmIn, p: Person = Depends(C.need()), db
     return j(reading_dict(r))
 
 
+class RoiIn(BaseModel):
+    roi: list[float] | None
+
+
+@app.get("/api/meters/{mid}/latest-photo")
+def latest_photo(mid: int, db=Depends(get_db)):
+    m = find(db, Meter, mid)
+    ph = db.scalars(select(Photo).where(Photo.meter_id == mid).order_by(Photo.taken_at.desc()).limit(1)).first()
+    return j({"meter_id": mid, "roi": m.roi, "n_digits": m.n_digits, "photo": f"/api/photos/{ph.id}.jpg" if ph else None,
+              "taken_at": ph.taken_at if ph else None})
+
+
+@app.put("/api/meters/{mid}/roi")
+def set_roi(mid: int, body: RoiIn, p: Person = Depends(C.need("caretaker", "committee", "admin")), db=Depends(get_db)):
+    m = find(db, Meter, mid)
+    may_read(p, m, db)
+    if body.roi is not None and (len(body.roi) != 4 or body.roi[2] <= body.roi[0] or body.roi[3] <= body.roi[1]):
+        raise HTTPException(422, "roi must be x0,y0,x1,y1 with x1>x0 and y1>y0")
+    m.roi = [round(v, 1) for v in body.roi] if body.roi else None
+    db.commit()
+    return {"meter_id": m.id, "roi": m.roi}
+
+
 @app.get("/api/readings/pending")
 def pending(village_id: int, limit: int = 50, db=Depends(get_db)):
     rs = db.scalars(select(Reading).join(Meter).where(Meter.village_id == village_id, Reading.status == "pending")

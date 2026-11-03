@@ -65,6 +65,11 @@ and can go offline and send its backlog later. Tests in `tests/test_api.py` run 
 
 Simulated villages are flagged `simulated: true` in the API and must be labelled as simulated in the demo.
 
+**Live demo mode** – set `SEED_DEMO=1`. On first start the server seeds the four demo villages (with people, bills,
+funds, repairs and rendered Clip photos), adds an hourly main-meter reading from the same village model, and reseeds once a
+day, so a judge opening the demo weeks later still sees Village B 🔴 (4 nights), C 🟡 (2 nights), D (Clip silent) and A 🟢.
+Auto-reseed only runs when every village in the database is simulated.
+
 ## API
 
 Interactive docs at `/docs`. Main routes:
@@ -75,7 +80,11 @@ Interactive docs at `/docs`. Main routes:
 | `GET /api/villages`, `/api/villages/{id}/status` | 🟢🟡🔴 level, alerts, leak state, devices |
 | `GET /api/villages/{id}/hourly`, `/nights`, `/balance?month=YYYY-MM` | dashboard data |
 | `POST /api/villages/{id}/night-tests`, `GET /api/night-tests/{id}` | soi night test |
-| `POST /api/meters/{id}/photo`, `POST /api/meters/{id}/readings`, `POST /api/readings/{id}/confirm` | phone, manual, SMS readings |
+| `POST /api/meters/{id}/photo`, `POST /api/meters/{id}/readings`, `POST /api/readings/{id}/confirm` | phone, manual readings |
+| `GET /api/meters/{id}/latest-photo`, `PUT /api/meters/{id}/roi` | set the Clip's digit box once after install |
+| `/api/login`, `/api/me`, bills, funds, repairs, points, Namjai (`namjai/community.py`) | community features |
+| `POST /api/sms/inbound` | SMS gateway webhook: `READ`, `REPORT`, `STATUS`, `BILL` (English or Thai) |
+| `POST /api/demo/login`, `/api/demo/ocr`, `/api/demo/phones` | judges' demo |
 | `POST /api/admin/...` | villages, zones, meters, devices (returns the Clip token) |
 
 ## Deploy (free tier)
@@ -83,6 +92,7 @@ Interactive docs at `/docs`. Main routes:
 1. Create a Postgres database on Neon and copy its connection string.
 2. Create a Hugging Face Space with the **Docker** SDK and push this repo to it (the Space builds `server/Dockerfile`
    from the repo root – copy it to `Dockerfile` at the root of the Space).
-3. In the Space settings add secrets `DATABASE_URL` and `ADMIN_TOKEN`.
+3. In the Space settings add secrets `DATABASE_URL`, `ADMIN_TOKEN` and `SECRET_KEY` (login tokens); add `SEED_DEMO=1`
+   for the judges' demo Space. Optional `SMS_SECRET` protects the SMS webhook.
 
 Check the current free-tier limits of both services before relying on them.

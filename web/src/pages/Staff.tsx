@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, photoUrl } from "../api";
 import { useAuth } from "../auth";
 import { Layout, Loading } from "../components/Layout";
+import { RoiEditor } from "../components/RoiEditor";
 import type { VillageStatus } from "../components/Status";
 import { ago, day, money, useApi } from "../hooks";
 import { useT } from "../i18n";
@@ -65,6 +66,10 @@ export default function Staff() {
               <span className="small muted">{t("last seen")}: {ago(s?.devices[0]?.last_seen, lang)}</span></span>
             <Link className={`btn small ${silent ? "primary" : ""}`} to={`/read?meter=${main.id}`}>📷 {t("Photograph the main meter now")}</Link>
           </div>
+          <details style={{ marginTop: 10 }}>
+            <summary style={{ cursor: "pointer", fontWeight: 600 }}>🎯 {t("Set the Clip's digit box")}</summary>
+            <RoiEditor meterId={main.id} />
+          </details>
         </div>
       )}
       {msg && <p className="notice warning">{msg}</p>}

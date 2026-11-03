@@ -176,6 +176,9 @@ const TH: Record<string, string> = {
   "Clip camera": "กล้อง Clip",
   "last seen": "ติดต่อล่าสุด",
   "Photograph the main meter now": "ถ่ายมิเตอร์หลักตอนนี้",
+  "Set the Clip's digit box": "ตั้งกรอบตัวเลขของ Clip",
+  "Drag a box around the digit wheels.": "ลากกรอบให้ครอบวงล้อตัวเลข",
+  "No Clip photo yet.": "ยังไม่มีรูปจาก Clip",
 };
 
 type Lang = "en" | "th";

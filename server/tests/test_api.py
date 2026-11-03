@@ -55,6 +55,11 @@ def test_clip_end_to_end(client):
     assert statuses.count("auto") >= 18
     wrong = [r for r in rows if r["status"] == "auto" and abs(r["value"] - int(model.main_at(datetime.fromisoformat(r["taken_at"][:-1])) / 0.1) * 0.1) > 0.15]
     assert not wrong
+    latest = client.get(f"/api/meters/{mid}/latest-photo").json()
+    assert latest["photo"] and latest["roi"] == sim.roi
+    assert client.put(f"/api/meters/{mid}/roi", json={"roi": [1, 2, 3, 4]}).status_code == 401
+    assert client.put(f"/api/meters/{mid}/roi", json={"roi": [5, 2, 3, 4]}, headers=staff).status_code == 422
+    assert client.put(f"/api/meters/{mid}/roi", json={"roi": sim.roi}, headers=staff).json()["roi"] == sim.roi
     dup = client.post("/api/clip/photo", content=b"x", headers={**sim.headers(), "X-Seq": "1", "X-Light": "a", "X-Captured-At": "0"})
     assert dup.status_code == 409
 
