@@ -188,6 +188,8 @@ def evaluate(db, village, now=None):
                   {"device_id": d.id, "meter_id": d.meter_id, "last_seen": d.last_seen.isoformat() + "Z" if d.last_seen else None,
                    "action": "photograph_main_meter"}, now)
     db.commit()
+    from .community import sync_leak_jobs
+    sync_leak_jobs(db, village)
 
 
 def open_alerts(db, village_id):

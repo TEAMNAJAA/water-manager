@@ -11,9 +11,10 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from . import analytics as A
+from . import community as C
 from . import config, db as D
 from . import services as S
-from .models import Alert, Device, Meter, NightTest, Photo, Reading, Village, Zone, utcnow
+from .models import Alert, Device, Meter, Network, NightTest, Person, Photo, Reading, Village, Zone, utcnow
 
 
 def j(x):
@@ -46,6 +47,7 @@ async def lifespan(app):
 
 app = FastAPI(title="NamJai", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(C.router)
 
 
 def get_db():
@@ -98,7 +100,7 @@ def clip_heartbeat(data: dict, d: Device = Depends(device), db=Depends(get_db)):
 
 def summary(db, v):
     alerts = S.open_alerts(db, v.id)
-    return {"id": v.id, "name": v.name, "simulated": v.simulated, "lat": v.lat, "lon": v.lon,
+    return {"id": v.id, "name": v.name, "simulated": v.simulated, "lat": v.lat, "lon": v.lon, "network_id": v.network_id,
             "level": S.village_level(alerts), "alerts": len(alerts)}
 
 
@@ -109,6 +111,23 @@ def villages(db=Depends(get_db)):
 
 def alert_dict(a):
     return {"id": a.id, "kind": a.kind, "level": a.level, "started": a.started, "updated": a.updated, "data": a.data}
+
+
+@app.get("/api/networks/{nid}")
+def network(nid: int, db=Depends(get_db)):
+    n = find(db, Network, nid)
+    vs = db.scalars(select(Village).where(Village.network_id == nid).order_by(Village.id)).all()
+    items = []
+    for v in vs:
+        alerts = S.open_alerts(db, v.id)
+        leak = next((a.data for a in alerts if a.kind == "leak"), None)
+        items.append({**summary(db, v), "kinds": sorted({a.kind for a in alerts}), "litres_per_day": leak and leak.get("litres_per_day")})
+    from .models import Depot
+    depots = db.scalars(select(Depot).where(Depot.network_id == nid)).all()
+    techs = db.scalars(select(Person).where(Person.role == "technician", Person.network_id == nid)).all()
+    return j({"id": n.id, "name": n.name, "lat": n.lat, "lon": n.lon, "villages": items,
+              "depots": [{"id": d.id, "name": d.name, "lat": d.lat, "lon": d.lon, "items": d.items} for d in depots],
+              "technicians": [{"id": t.id, "name": t.name.split()[0], "lat": t.lat, "lon": t.lon} for t in techs]})
 
 
 @app.get("/api/villages/{vid}/status")
@@ -228,9 +247,11 @@ def meter_readings(mid: int, limit: int = 50, db=Depends(get_db)):
 
 
 @app.post("/api/meters/{mid}/photo", status_code=201)
-async def meter_photo(mid: int, file: UploadFile = File(...), taken_at: datetime | None = None, by: str | None = None, db=Depends(get_db)):
+async def meter_photo(mid: int, file: UploadFile = File(...), taken_at: datetime | None = None, by: str | None = None,
+                      p: Person | None = Depends(C.current), db=Depends(get_db)):
     m = find(db, Meter, mid)
     when = taken_at.replace(tzinfo=None) if taken_at else utcnow()
+    by = f"person:{p.id}" if p else by
     try:
         r, result = S.ingest_phone_photo(db, m, await file.read(), when, by)
     except ValueError as e:
@@ -266,9 +287,11 @@ class ConfirmIn(BaseModel):
 @app.post("/api/readings/{rid}/confirm")
 def confirm_reading(rid: int, body: ConfirmIn, db=Depends(get_db)):
     r = find(db, Reading, rid)
-    issues = S.confirm(db, r, body.value, body.by, body.force)
+    by = r.confirmed_by if (r.confirmed_by or "").startswith("person:") else body.by
+    issues = S.confirm(db, r, body.value, by, body.force)
     if issues:
         raise HTTPException(409, {"issues": issues})
+    C.award_main_photo(db, r, db.get(Meter, r.meter_id))
     return j(reading_dict(r))
 
 
@@ -284,8 +307,15 @@ def photo(pid: int, db=Depends(get_db)):
     return Response(find(db, Photo, pid).jpeg, media_type="image/jpeg")
 
 
+class NetworkIn(BaseModel):
+    name: str
+    lat: float | None = None
+    lon: float | None = None
+
+
 class VillageIn(BaseModel):
     name: str
+    network_id: int | None = None
     tz: str = "Asia/Bangkok"
     lat: float | None = None
     lon: float | None = None
@@ -325,6 +355,11 @@ def create(db, obj):
 @app.post("/api/admin/villages", status_code=201, dependencies=[Depends(admin)])
 def admin_village(body: VillageIn, db=Depends(get_db)):
     return create(db, Village(**body.model_dump()))
+
+
+@app.post("/api/admin/networks", status_code=201, dependencies=[Depends(admin)])
+def admin_network(body: NetworkIn, db=Depends(get_db)):
+    return create(db, Network(**body.model_dump()))
 
 
 @app.post("/api/admin/zones", status_code=201, dependencies=[Depends(admin)])

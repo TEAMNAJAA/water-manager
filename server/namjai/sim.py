@@ -11,7 +11,8 @@ from namjai_ocr import synth
 
 from . import db as D
 from . import services as S
-from .models import Device, Heartbeat, Meter, Reading, Village, Zone, utcnow
+from . import community as C
+from .models import Depot, Device, FundEntry, Heartbeat, Meter, Network, Person, Reading, RepairJob, ThankYou, Village, Zone, utcnow
 
 PROFILE = np.array([0.15, 0.1, 0.08, 0.08, 0.15, 0.6, 1.8, 2.2, 1.6, 1.1, 0.9, 1.0,
                     1.2, 0.9, 0.8, 0.9, 1.3, 1.9, 2.1, 1.8, 1.3, 0.9, 0.5, 0.3])
@@ -75,9 +76,9 @@ def floor_to(v, scale):
     return math.floor(v / scale + 1e-9) * scale
 
 
-def seed_village(db, name, model, zones=4, lat=None, lon=None, outages=(), silent=False, now=None, house_rounds=True):
+def seed_village(db, name, model, zones=4, lat=None, lon=None, outages=(), silent=False, now=None, house_rounds=True, network_id=None):
     now = now or utcnow()
-    v = Village(name=name, tz=model.tz, lat=lat, lon=lon, simulated=True, settings={})
+    v = Village(name=name, tz=model.tz, lat=lat, lon=lon, simulated=True, settings={}, network_id=network_id)
     db.add(v)
     db.flush()
     zs = [Zone(village_id=v.id, name=f"Soi {i + 1}") for i in range(zones)]
@@ -176,6 +177,79 @@ class ClipSim:
         return results
 
 
+NAMES = ["Malee", "Somchai", "Wichai", "Pranee", "Bua", "Kanya", "Niran", "Sompong", "Lamai", "Prasit", "Duang", "Arun",
+         "Ratana", "Chuen", "Jintana", "Thong", "Mali", "Somsak", "Noi", "Kasem"]
+DONORS = [("Lamai's family", 1500, False), ("Kasem shop", 800, False), ("A neighbour", 300, True), ("Teacher Ratana", 500, False),
+          ("Grandpa Thong", 200, False), ("Temple fair", 2500, False)]
+THANKS = ["Thank you for helping my family this month.", "We will pay it forward when the harvest comes.",
+          "Thank you, kind neighbours. Water is life."]
+
+
+def person(db, village, name, role, meter=None, demo=False, network_id=None, lat=None, lon=None, rng=None):
+    p = Person(village_id=village.id if village else None, network_id=network_id, name=name, role=role,
+               meter_id=meter.id if meter else None, demo=demo, lat=lat, lon=lon)
+    db.add(p)
+    db.flush()
+    return p
+
+
+def seed_community(db, v, houses, rng, now, network_id):
+    resident = person(db, v, "Malee", "resident", houses[0], demo=True)
+    caretaker = person(db, v, "Somchai", "caretaker", houses[1], demo=True)
+    committee = [person(db, v, "Wichai", "committee", houses[2], demo=True), person(db, v, "Pranee", "committee", houses[3])]
+    others = [person(db, v, NAMES[4 + i % (len(NAMES) - 4)], "resident", h) for i, h in enumerate(houses[4:16])]
+    add = lambda *a, **k: C.add_entry(db, v, *a, **k)
+    start = min(r.taken_at for r in db.query(Reading).filter(Reading.meter_id == houses[0].id))
+    add("repair", "income", 5000, "local_budget", caretaker, "Tambon budget (example)", when=start)
+    add("rewards", "income", 1000, "sponsor", caretaker, "Kasem shop sponsorship (example)", when=start)
+    if network_id:
+        add("network", "income", 500, "contribution", caretaker, f"{v.name} share", when=start)
+    month = start.replace(day=12, hour=5)
+    while month <= now:
+        bills = C.run_bills(db, v, month)
+        for b in bills:
+            roll = rng.random()
+            when = b.issued + timedelta(days=int(rng.integers(1, 13))) if roll < 0.8 else b.due + timedelta(days=int(rng.integers(3, 20)))
+            if roll < 0.92 and when <= now:
+                C.pay_bill(db, b, caretaker, when)
+        month = (month + timedelta(days=32)).replace(day=12)
+    for name, amount, anon in DONORS:
+        add("namjai", "income", amount, "donation", caretaker, data={"donor": name, "anonymous": anon}, when=start + timedelta(days=int(rng.integers(5, 60))))
+    unpaid = sorted(db.query(C.Bill).filter(C.Bill.village_id == v.id, C.Bill.status == "unpaid", C.Bill.due < now).all(), key=lambda b: b.due)
+    for b in unpaid[:2]:
+        e = add("namjai", "expense", b.amount, "namjai_bill", committee[0], "Namjai support", f"bill:{b.id}")
+        e.approvals = [committee[0].id, committee[1].id]
+        C.settle(db, v, e)
+    for text in THANKS[: 1 + v.id % 3]:
+        db.add(ThankYou(village_id=v.id, text=text, created=now - timedelta(days=int(rng.integers(1, 30)))))
+    zones = [z.id for z in v.zones]
+    jobs = [("leak", others[0], 12, True, "large", 1800.0), ("broken_tap", others[1], 20, False, "small", 60.0),
+            ("wet_ground", others[2], 35, True, "large", 2500.0), ("no_water", resident, 50, False, "large", None)]
+    for kind, who, ago, verified, size, lpd in jobs:
+        when = now - timedelta(days=ago)
+        j = RepairJob(village_id=v.id, zone_id=zones[ago % len(zones)], kind=kind, reported_by=who.id, size=size, status="done",
+                      verified=verified, litres_per_day=lpd, created=when, updated=when + timedelta(days=1),
+                      lat=v.lat + rng.normal(0, 0.002), lon=v.lon + rng.normal(0, 0.002),
+                      history=[{"at": C.iso(when), "status": "open", "by": C.first_name(who)},
+                               {"at": C.iso(when + timedelta(days=1)), "status": "done", "by": "Anan"}])
+        db.add(j)
+        db.flush()
+        if verified:
+            C.award(db, who.id, v.id, "verified_report", f"job:{j.id}", when=when + timedelta(days=1))
+        if size == "large":
+            e = add("repair", "expense", 450.0, "repair_cost", caretaker, f"Repair job #{j.id}", f"job:{j.id}", when=when + timedelta(days=1))
+            e.approvals = [caretaker.id, committee[0].id]
+            C.settle(db, v, e)
+    if v.id % 2:
+        db.add(RepairJob(village_id=v.id, zone_id=zones[1 % len(zones)], kind="wet_ground", reported_by=others[3].id,
+                         note="Wet ground next to the road, near the big tamarind tree", lat=v.lat + 0.001, lon=v.lon - 0.001,
+                         created=now - timedelta(hours=20), updated=now - timedelta(hours=20),
+                         history=[{"at": C.iso(now - timedelta(hours=20)), "status": "open", "by": C.first_name(others[3])}]))
+    for d in range(1, 8, 3):
+        C.award(db, others[(d + v.id) % len(others)].id, v.id, "main_photo", f"day:{(now - timedelta(days=d)).date()}", when=now - timedelta(days=d))
+    db.commit()
+
+
 DEMO = [
     ("Village A (pilot - simulated until real data)", 19.905, 99.83, [], (), False),
     ("Village B", 19.93, 99.87, [("night", 4, 0.6)], (), False),
@@ -184,9 +258,18 @@ DEMO = [
 ]
 
 
-def seed_demo(db, days=150, houses=60, now=None):
+def seed_demo(db, days=150, houses=60, now=None, community=True):
     now = (now or utcnow()).replace(minute=0, second=0, microsecond=0)
     start = now - timedelta(days=days)
+    net = Network(name="Demo district network (simulated)", lat=19.92, lon=99.85)
+    db.add(net)
+    db.flush()
+    rng = np.random.default_rng(7)
+    db.add(Depot(network_id=net.id, name="Tambon office parts store", lat=19.915, lon=99.86,
+                 items={"PVC pipe 1/2in (4 m)": 12, "PVC pipe 1in (4 m)": 6, "Coupling 1/2in": 30, "Coupling 1in": 15,
+                        "Tap": 8, "Valve 1in": 3, "PVC glue": 5}))
+    for name, lat, lon in [("Anan", 19.91, 99.84), ("Boonmee", 19.94, 99.88), ("Chai", 19.89, 99.89)]:
+        person(db, None, name, "technician", network_id=net.id, demo=name == "Anan", lat=lat, lon=lon)
     out = []
     for k, (name, lat, lon, leaks, outages, silent) in enumerate(DEMO):
         lk = []
@@ -194,7 +277,9 @@ def seed_demo(db, days=150, houses=60, now=None):
             when = now - timedelta(days=ago, hours=now.hour - 12) if kind == "night" else now - timedelta(days=ago)
             lk.append(Leak(when, m3h, house=3 if kind == "house" else None))
         model = VillageModel(houses, start, days + 1, seed=100 + k, leaks=lk)
-        v, *_ = seed_village(db, name, model, lat=lat, lon=lon, outages=outages, silent=silent, now=now)
+        v, main, hs, dev = seed_village(db, name, model, lat=lat, lon=lon, outages=outages, silent=silent, now=now, network_id=net.id)
+        if community:
+            seed_community(db, v, hs, rng, now, net.id)
         S.evaluate(db, v, now)
         out.append(v)
     return out
