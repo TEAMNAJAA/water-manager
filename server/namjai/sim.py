@@ -251,7 +251,7 @@ def seed_community(db, v, houses, rng, now, network_id):
 
 
 DEMO = [
-    ("Village A (pilot - simulated until real data)", 19.905, 99.83, [], (), False),
+    ("Village A (pilot)", 19.905, 99.83, [], (), False),
     ("Village B", 19.93, 99.87, [("night", 4, 0.6)], (), False),
     ("Village C", 19.88, 99.90, [("night", 2, 0.35)], (), False),
     ("Village D", 19.95, 99.80, [("house", 45, 0.05)], (), True),
@@ -273,8 +273,15 @@ def seed_demo(db, days=150, houses=60, now=None, community=True):
     out = []
     for k, (name, lat, lon, leaks, outages, silent) in enumerate(DEMO):
         lk = []
+        tz = ZoneInfo("Asia/Bangkok")
+        local_now = now.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz)
+        last_night = (local_now - timedelta(hours=5)).date() - timedelta(days=1)
         for kind, ago, m3h in leaks:
-            when = now - timedelta(days=ago, hours=now.hour - 12) if kind == "night" else now - timedelta(days=ago)
+            if kind == "night":
+                first = last_night - timedelta(days=ago - 1)
+                when = datetime(first.year, first.month, first.day, 19, tzinfo=tz).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            else:
+                when = now - timedelta(days=ago)
             lk.append(Leak(when, m3h, house=3 if kind == "house" else None))
         model = VillageModel(houses, start, days + 1, seed=100 + k, leaks=lk)
         v, main, hs, dev = seed_village(db, name, model, lat=lat, lon=lon, outages=outages, silent=silent, now=now, network_id=net.id)

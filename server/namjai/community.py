@@ -346,13 +346,23 @@ def namjai_candidates(vid: int, p: Person = Depends(need("committee", "admin")),
 def funds(vid: int, db=Depends(get_db)):
     v = find(db, Village, vid)
     wallets = {w: balance(db, w, v, v.network_id) for w in WALLETS if w != "network" or v.network_id}
-    q = select(FundEntry).where((FundEntry.village_id == vid) | ((FundEntry.network_id == v.network_id) & FundEntry.network_id.is_not(None)))
-    entries = db.scalars(q.order_by(FundEntry.created.desc()).limit(40)).all()
-    people = {x.id: x for x in db.scalars(select(Person).where(Person.id.in_({e.created_by for e in entries if e.created_by})))}
+    mine = (FundEntry.village_id == vid) | ((FundEntry.network_id == v.network_id) & FundEntry.network_id.is_not(None))
+    entries = db.scalars(select(FundEntry).where(mine, FundEntry.kind != "water_fee").order_by(FundEntry.created.desc()).limit(30)).all()
+    pending = db.scalars(select(FundEntry).where(mine, FundEntry.status == "pending").order_by(FundEntry.created)).all()
+    since = utcnow() - timedelta(days=185)
+    fees = db.scalars(select(FundEntry).where(FundEntry.village_id == vid, FundEntry.kind == "water_fee", FundEntry.created >= since)).all()
+    months = {}
+    for e in fees:
+        key = e.created.strftime("%Y-%m")
+        m = months.setdefault(key, {"month": key, "amount": 0.0, "bills": 0})
+        m["amount"] = round(m["amount"] + e.amount, 2)
+        m["bills"] += 1
+    people = {x.id: x for x in db.scalars(select(Person).where(Person.id.in_({e.created_by for e in [*entries, *pending] if e.created_by})))}
     return {"wallets": wallets, "rules": {w: {k: sorted(v) for k, v in r.items()} for w, r in WALLETS.items()},
             "approvals_needed": cfg(v)["approvals"],
+            "water_fees": sorted(months.values(), key=lambda m: m["month"], reverse=True),
             "entries": [entry_dict(e, people) for e in entries if e.status == "approved"],
-            "pending": [entry_dict(e, people) for e in entries if e.status == "pending"]}
+            "pending": [entry_dict(e, people) for e in pending]}
 
 
 class EntryIn(BaseModel):

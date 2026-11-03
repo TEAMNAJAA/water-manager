@@ -142,7 +142,7 @@ def status(vid: int, db=Depends(get_db)):
     return j({**summary(db, v), "alerts": [alert_dict(a) for a in alerts], "leak": leak,
               "devices": [{"id": d.id, "meter_id": d.meter_id, "last_seen": d.last_seen, "status": d.last_status} for d in devices],
               "zones": [{"id": z.id, "name": z.name} for z in v.zones],
-              "meters": [{"id": m.id, "kind": m.kind, "label": m.label, "zone_id": m.zone_id, "lat": m.lat, "lon": m.lon} for m in v.meters]})
+              "meters": [{"id": m.id, "kind": m.kind, "label": m.label, "zone_id": m.zone_id, "lat": m.lat, "lon": m.lon, "scale": m.scale, "n_digits": m.n_digits} for m in v.meters]})
 
 
 def main_meter(v, meter_id=None):
@@ -176,24 +176,36 @@ def month_bounds(v, month):
     return A.to_utc(start), A.to_utc(end)
 
 
+def compute_balance(db, v, start, end):
+    houses = {m.id: S.series(db, m.id, start - timedelta(days=62), end + timedelta(days=62)) for m in v.meters if m.kind == "house"}
+    out = A.water_balance(S.series(db, main_meter(v).id, start - timedelta(days=2), end + timedelta(days=2)), houses, start, end)
+    out["complete"] = bool(houses) and out["houses_read"] >= 0.8 * len(houses) and out["main_coverage"] >= 0.8
+    zone_of = {m.id: m.zone_id for m in v.meters}
+    zones = {}
+    for h in out["houses"]:
+        zones[zone_of[h["meter_id"]]] = zones.get(zone_of[h["meter_id"]], 0.0) + h["m3"]
+    out["zones"] = [{"zone_id": z, "m3": round(m3, 3)} for z, m3 in zones.items()]
+    return out
+
+
 @app.get("/api/villages/{vid}/balance")
 def balance(vid: int, month: str | None = None, start: datetime | None = None, end: datetime | None = None, db=Depends(get_db)):
     v = find(db, Village, vid)
     if month:
         start, end = month_bounds(v, month)
-    if not (start and end):
-        end = utcnow()
-        start = end - timedelta(days=30)
-    start, end = start.replace(tzinfo=None), end.replace(tzinfo=None)
-    houses = {m.id: S.series(db, m.id, start - timedelta(days=62), end + timedelta(days=62)) for m in v.meters if m.kind == "house"}
-    out = A.water_balance(S.series(db, main_meter(v).id, start - timedelta(days=2), end + timedelta(days=2)), houses, start, end)
-    zone_of = {m.id: m.zone_id for m in v.meters}
-    zones = {}
-    for h in out["houses"]:
-        zones.setdefault(zone_of[h["meter_id"]], 0.0)
-        zones[zone_of[h["meter_id"]]] += h["m3"]
-    out["zones"] = [{"zone_id": z, "m3": round(m3, 3)} for z, m3 in zones.items()]
-    return j(out)
+    if start and end:
+        return j({"month": month, **compute_balance(db, v, start.replace(tzinfo=None), end.replace(tzinfo=None))})
+    now = A.local(utcnow(), v.tz)
+    y, m = now.year, now.month
+    first = None
+    for _ in range(6):
+        y, m = (y - 1, 12) if m == 1 else (y, m - 1)
+        label = f"{y}-{m:02d}"
+        out = compute_balance(db, v, *month_bounds(v, label))
+        first = first or (label, out)
+        if out["complete"]:
+            return j({"month": label, **out})
+    return j({"month": first[0], **first[1]})
 
 
 @app.get("/api/villages/{vid}/alerts")
@@ -216,6 +228,12 @@ def create_night_test(vid: int, body: NightTestIn, db=Depends(get_db)):
     db.add(t)
     db.commit()
     return {"id": t.id}
+
+
+@app.get("/api/villages/{vid}/night-tests")
+def night_tests(vid: int, db=Depends(get_db)):
+    ts = db.scalars(select(NightTest).where(NightTest.village_id == vid).order_by(NightTest.created.desc()).limit(10)).all()
+    return j([{"id": t.id, "zone_id": t.zone_id, "night_of": t.night_of} for t in ts])
 
 
 @app.get("/api/night-tests/{tid}")

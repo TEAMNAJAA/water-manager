@@ -10,7 +10,7 @@ Built for the Xylem Global Student Innovation Challenge 2026 (Water Access).
 | Meter reading from photos | [`ocr/`](ocr) | v0.1 – synthetic benchmark, waiting for real photos |
 | NamJai Clip firmware (ESP32-CAM) | [`firmware/`](firmware) | v0.1 – builds in CI, not yet tested on hardware |
 | Server, database, leak detection, simulator | [`server/`](server) | v0.1 – tested on simulated villages |
-| Web app (PWA) + dashboards | `web/` | planned |
+| Web app (PWA), dashboards, judges' demo, SMS simulator | [`web/`](web) | v0.1 – tested in Chromium on simulated villages |
 | Hardware: parts list, wiring, 3D-printed hood | `hardware/` | planned |
 
 Open source under the MIT License.
