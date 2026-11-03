@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "namjai-ocr"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["numpy>=2.0", "opencv-python-headless>=4.10", "pillow>=10.0"]
+
+[project.optional-dependencies]
+train = ["scikit-learn>=1.5", "pytest>=8.0"]
+
+[tool.setuptools]
+packages = ["namjai_ocr"]
+
+[tool.setuptools.package-data]
+namjai_ocr = ["models/*.json"]

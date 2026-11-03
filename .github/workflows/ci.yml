@@ -19,6 +19,30 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pytest -q tests
 
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get install -y fonts-dejavu-core fonts-liberation fonts-freefont-ttf
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q tests
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f server/Dockerfile -t namjai-server .
+      - run: |
+          docker run -d -p 7860:7860 --name namjai namjai-server
+          for i in $(seq 30); do curl -sf localhost:7860/health && exit 0; sleep 1; done
+          docker logs namjai; exit 1
+
   firmware:
     runs-on: ubuntu-latest
     defaults:
