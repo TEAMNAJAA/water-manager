@@ -7,3 +7,5 @@ dist/
 .env
 ocr/data/real/images/
 ocr/data/synthetic/
+*.egg-info/
+*.db
