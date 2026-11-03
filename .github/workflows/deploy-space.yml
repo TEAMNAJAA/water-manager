@@ -1,0 +1,43 @@
+name: deploy-space
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    if: vars.HF_SPACE != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Space folder
+        run: |
+          mkdir space
+          cp -r ocr server space/
+          rm -rf space/ocr/data space/ocr/reports space/ocr/*.egg-info space/server/tests
+          cp server/Dockerfile space/Dockerfile
+          cat > space/README.md <<EOF
+          ---
+          title: NamJai
+          emoji: 💧
+          colorFrom: blue
+          colorTo: green
+          sdk: docker
+          app_port: 7860
+          pinned: false
+          ---
+          NamJai server, deployed from https://github.com/${{ github.repository }} (${{ github.sha }}).
+          EOF
+      - name: Push to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ vars.HF_SPACE }}
+        run: |
+          cd space
+          git init -q -b main
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add -A
+          git commit -q -m "Deploy ${GITHUB_SHA::7}"
+          git push --force "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" main
