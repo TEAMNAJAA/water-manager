@@ -83,11 +83,12 @@ def test_repairs_and_verified_points(client, demo, session):
     b, c = demo["Village B"].id, demo["Village C"].id
     jobs = client.get(f"/api/villages/{b}/repairs").json()
     assert jobs[0]["source"] == "system" and jobs[0]["kind"] == "leak_detected" and jobs[0]["litres_per_day"] > 0
-    res = login(client, c, "resident")
-    job = client.post(f"/api/villages/{c}/repairs", json={"kind": "leak", "note": "pipe at soi 2"}, headers=res).json()
+    a = demo["Village A"].id
+    res = login(client, a, "resident")
+    job = client.post(f"/api/villages/{a}/repairs", json={"kind": "leak", "note": "pipe at soi 2"}, headers=res).json()
     assert job["status"] == "open"
     assert client.patch(f"/api/repairs/{job['id']}", json={"status": "done"}, headers=res).status_code == 403
-    tech = login(client, c, "technician")
+    tech = login(client, a, "technician")
     near = client.get(f"/api/repairs/{job['id']}/technicians").json()
     assert near["technicians"][0]["km"] is not None and near["depots"]
     assigned = client.patch(f"/api/repairs/{job['id']}", json={"status": "fixing"}, headers=tech).json()

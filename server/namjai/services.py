@@ -173,6 +173,10 @@ def set_alert(db, village_id, kind, key, level, data, now):
     return a
 
 
+def resolution(meter):
+    return meter.resolution or meter.scale
+
+
 def leak_state(db, village, meter, now, days=45):
     cfg = A.settings(village.settings)
     s = series(db, meter.id, now - timedelta(days=days + 1), now)
@@ -180,7 +184,7 @@ def leak_state(db, village, meter, now, days=45):
         return A.LeakState(learning=True)
     first = A.local(s.t[0], village.tz).date()
     last = A.local(now, village.tz).date() - timedelta(days=1)
-    return A.detect_leak(A.night_flows(s, village.tz, first, last, cfg), meter.scale, cfg)
+    return A.detect_leak(A.night_flows(s, village.tz, first, last, cfg), resolution(meter), cfg)
 
 
 def evaluate(db, village, now=None):
@@ -191,8 +195,14 @@ def evaluate(db, village, now=None):
         if m.kind == "main":
             st = leak_state(db, village, m, now)
             data = {"meter_id": m.id, "started": st.started.isoformat() if st.started else None, "nights": st.streak,
-                    "excess_m3h": st.excess_m3h, "litres_per_day": st.litres_per_day, "baseline_m3h": st.baseline}
+                    "excess_m3h": st.excess_m3h, "litres_per_day": st.litres_per_day, "people_per_day": st.people_per_day,
+                    "baseline_m3h": st.baseline}
             set_alert(db, village.id, "leak", f"meter:{m.id}", st.level, data, now)
+            recent = series(db, m.id, now - timedelta(days=cfg["typical_days"] + 1), now)
+            b = A.burst(recent, now, resolution(m), cfg)
+            set_alert(db, village.id, "burst", f"meter:{m.id}", "red" if b else "green", {"meter_id": m.id, **(b or {})}, now)
+            nf = A.no_flow(recent, now, resolution(m), village.tz, cfg)
+            set_alert(db, village.id, "no_flow", f"meter:{m.id}", "yellow" if nf else "green", {"meter_id": m.id, **(nf or {})}, now)
         else:
             hit = A.house_anomaly(series(db, m.id), cfg)
             set_alert(db, village.id, "house_high", f"meter:{m.id}", "yellow" if hit else "green", {"meter_id": m.id, **(hit or {})}, now)
@@ -202,8 +212,9 @@ def evaluate(db, village, now=None):
                   {"device_id": d.id, "meter_id": d.meter_id, "last_seen": d.last_seen.isoformat() + "Z" if d.last_seen else None,
                    "action": "photograph_main_meter"}, now)
     db.commit()
-    from .community import sync_leak_jobs
+    from .community import check_proofs, sync_leak_jobs
     sync_leak_jobs(db, village)
+    check_proofs(db, village, now)
 
 
 def open_alerts(db, village_id):

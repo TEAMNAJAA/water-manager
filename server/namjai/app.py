@@ -1,17 +1,20 @@
 import asyncio
 import hmac
 import os
+from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from . import analytics as A
 from . import community as C
+from . import field as F
 from . import config, db as D
 from . import services as S
 from .models import Alert, Device, Meter, Network, NightTest, Person, Photo, Reading, Village, Zone, utcnow
@@ -61,6 +64,7 @@ async def lifespan(app):
 app = FastAPI(title="NamJai", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(C.router)
+app.include_router(F.router)
 
 
 def get_db():
@@ -155,7 +159,9 @@ def status(vid: int, db=Depends(get_db)):
     return j({**summary(db, v), "alerts": [alert_dict(a) for a in alerts], "leak": leak,
               "devices": [{"id": d.id, "meter_id": d.meter_id, "last_seen": d.last_seen, "status": d.last_status} for d in devices],
               "zones": [{"id": z.id, "name": z.name} for z in v.zones],
-              "meters": [{"id": m.id, "kind": m.kind, "label": m.label, "zone_id": m.zone_id, "lat": m.lat, "lon": m.lon, "scale": m.scale, "n_digits": m.n_digits} for m in v.meters]})
+              "meters": [{"id": m.id, "kind": m.kind, "label": m.label, "zone_id": m.zone_id, "lat": m.lat, "lon": m.lon, "scale": m.scale,
+                          "n_digits": m.n_digits, "resolution": S.resolution(m)} for m in v.meters],
+              "settings": F.settings_dict(db, v)})
 
 
 def main_meter(v, meter_id=None):
@@ -278,14 +284,7 @@ def meter_readings(mid: int, limit: int = 50, db=Depends(get_db)):
 
 
 def may_read(p, m, db):
-    if p.role in ("caretaker", "committee", "admin"):
-        if p.role != "admin" and p.village_id != m.village_id:
-            raise HTTPException(403, "other village")
-        return
-    if m.kind == "main" and p.village_id == m.village_id:
-        return
-    if p.meter_id != m.id:
-        raise HTTPException(403, "you can only read your own meter")
+    C.may_read(p, m)
 
 
 @app.post("/api/meters/{mid}/photo", status_code=201)
@@ -475,3 +474,17 @@ def admin_device_update(did: str, body: dict, db=Depends(get_db)):
 def admin_evaluate(db=Depends(get_db)):
     S.evaluate_all(db)
     return {"ok": True}
+
+
+WEB_DIST = Path(os.getenv("WEB_DIST", Path(__file__).resolve().parents[2] / "web" / "dist"))
+
+if WEB_DIST.is_dir():
+    @app.get("/{path:path}", include_in_schema=False)
+    def web(path: str):
+        if path.startswith("api/"):
+            raise HTTPException(404, "not found")
+        root = WEB_DIST.resolve()
+        f = (root / path).resolve()
+        if path and f.is_file() and root in f.parents:
+            return FileResponse(f)
+        return FileResponse(root / "index.html")

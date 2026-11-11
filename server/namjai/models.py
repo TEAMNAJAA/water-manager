@@ -50,6 +50,7 @@ class Meter(Base):
     n_digits: Mapped[int] = mapped_column(Integer, default=5)
     scale: Mapped[float] = mapped_column(Float, default=1.0)
     max_flow: Mapped[float] = mapped_column(Float, default=3.125)
+    resolution: Mapped[float | None] = mapped_column(Float)
     roi: Mapped[list | None] = mapped_column(JSON)
     lat: Mapped[float | None] = mapped_column(Float)
     lon: Mapped[float | None] = mapped_column(Float)
@@ -202,6 +203,7 @@ class RepairJob(Base):
     created: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     history: Mapped[list] = mapped_column(JSON, default=list)
+    proof: Mapped[dict | None] = mapped_column(JSON, default=dict)
 
 
 class Depot(Base):
@@ -232,3 +234,15 @@ class ThankYou(Base):
     village_id: Mapped[int] = mapped_column(ForeignKey("villages.id"), index=True)
     text: Mapped[str] = mapped_column(String(280))
     created: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class StepTest(Base):
+    __tablename__ = "step_tests"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    village_id: Mapped[int] = mapped_column(ForeignKey("villages.id"), index=True)
+    meter_id: Mapped[int] = mapped_column(ForeignKey("meters.id"))
+    created: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("people.id"))
+    steps: Mapped[list] = mapped_column(JSON, default=list)
+    finished: Mapped[datetime | None] = mapped_column(DateTime)
+    note: Mapped[str | None] = mapped_column(String(300))

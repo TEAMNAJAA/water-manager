@@ -10,16 +10,33 @@ DEFAULTS = {
     "night_start": 1,
     "night_end": 5,
     "baseline_nights": 14,
-    "min_history": 5,
+    "min_history": 3,
     "high_ratio": 1.5,
-    "min_excess": 0.2,
+    "min_excess": 0.02,
     "watch_nights": 2,
     "repair_nights": 3,
     "clear_nights": 2,
     "max_gap_h": 3.0,
+    "coarse_before_h": 4.0,
+    "coarse_after_h": 3.0,
+    "coarse_max_h": 10.0,
     "house_ratio": 1.5,
     "house_min_extra": 0.1,
     "nighttest_moved_m3": 0.02,
+    "burst_window_h": 2.0,
+    "burst_chunks": 4,
+    "burst_ratio": 2.0,
+    "burst_min_m3h": 0.5,
+    "typical_days": 7,
+    "typical_min_days": 3,
+    "fresh_min": 45,
+    "noflow_day_start": 6,
+    "noflow_day_end": 21,
+    "noflow_typical_min": 0.1,
+    "litres_per_person": 50,
+    "proof_nights": 2,
+    "step_settle_min": 3,
+    "step_before_min": 15,
 }
 
 
@@ -56,6 +73,19 @@ class Series:
             return None
         return self.v[i - 1] + (self.v[i] - self.v[i - 1]) * (when - t0).total_seconds() / (t1 - t0).total_seconds()
 
+    def before(self, when, within):
+        i = bisect_left(self.t, when + timedelta(microseconds=1)) - 1
+        return i if i >= 0 and when - self.t[i] <= within else None
+
+    def after(self, when, within):
+        i = bisect_left(self.t, when)
+        return i if i < len(self.t) and self.t[i] - when <= within else None
+
+    def flow(self, a, b, max_gap_h=3.0):
+        va, vb = self.at(a, max_gap_h), self.at(b, max_gap_h)
+        hours = (b - a).total_seconds() / 3600
+        return None if va is None or vb is None or hours <= 0 else max(0.0, (vb - va) / hours)
+
     def hourly(self, start, end, max_gap_h=3.0):
         out, h = [], start.replace(minute=0, second=0, microsecond=0)
         while h < end:
@@ -72,20 +102,42 @@ class Night:
     baseline: float | None = None
     excess: float | None = None
     high: bool = False
+    coarse: bool = False
+
+
+def window(night_of, tz, cfg):
+    nxt = night_of + timedelta(days=1)
+    return (to_utc(datetime.combine(nxt, time(cfg["night_start"]), ZoneInfo(tz))),
+            to_utc(datetime.combine(nxt, time(cfg["night_end"]), ZoneInfo(tz))))
+
+
+def night_flow(series, night_of, tz, cfg):
+    a, b = window(night_of, tz, cfg)
+    f = series.flow(a, b, cfg["max_gap_h"])
+    if f is not None:
+        return round(f, 4), False
+    i = series.before(a, timedelta(hours=cfg["coarse_before_h"]))
+    j = series.after(b, timedelta(hours=cfg["coarse_after_h"]))
+    if i is None or j is None or j <= i:
+        return None, False
+    hours = (series.t[j] - series.t[i]).total_seconds() / 3600
+    if hours > cfg["coarse_max_h"]:
+        return None, False
+    return round(max(0.0, (series.v[j] - series.v[i]) / hours), 4), True
 
 
 def night_flows(series, tz, first, last, cfg):
     out = []
     d = first
     while d <= last:
-        nxt = d + timedelta(days=1)
-        a = datetime.combine(nxt, time(cfg["night_start"]), ZoneInfo(tz))
-        b = datetime.combine(nxt, time(cfg["night_end"]), ZoneInfo(tz))
-        va, vb = series.at(to_utc(a), cfg["max_gap_h"]), series.at(to_utc(b), cfg["max_gap_h"])
-        hours = (b - a).total_seconds() / 3600
-        out.append(Night(d, None if va is None or vb is None else round(max(0.0, (vb - va) / hours), 4)))
-        d = nxt
+        flow, coarse = night_flow(series, d, tz, cfg)
+        out.append(Night(d, flow, coarse=coarse))
+        d += timedelta(days=1)
     return out
+
+
+def people(litres_per_day, cfg=DEFAULTS):
+    return None if litres_per_day is None else int(round(litres_per_day / cfg["litres_per_person"]))
 
 
 def resolution_floor(scale, cfg):
@@ -99,6 +151,7 @@ class LeakState:
     started: date | None = None
     excess_m3h: float | None = None
     litres_per_day: float | None = None
+    people_per_day: int | None = None
     baseline: float | None = None
     learning: bool = False
     nights: list = field(default_factory=list)
@@ -146,7 +199,86 @@ def detect_leak(nights, scale, cfg):
         state.started = start
         state.excess_m3h = round(median(excesses), 4)
         state.litres_per_day = round(state.excess_m3h * 24 * 1000)
+        state.people_per_day = people(state.litres_per_day, cfg)
     return state
+
+
+def typical(series, a, b, cfg):
+    vals = []
+    for k in range(1, cfg["typical_days"] + 1):
+        f = series.flow(a - timedelta(days=k), b - timedelta(days=k), cfg["max_gap_h"])
+        if f is not None:
+            vals.append(f)
+    return median(vals) if len(vals) >= cfg["typical_min_days"] else None
+
+
+def fresh_end(series, now, cfg):
+    if not series.t or now - series.t[-1] > timedelta(minutes=cfg["fresh_min"]):
+        return None
+    return series.t[-1]
+
+
+def burst(series, now, scale, cfg):
+    end = fresh_end(series, now, cfg)
+    if end is None:
+        return None
+    win = timedelta(hours=cfg["burst_window_h"])
+    step = win / cfg["burst_chunks"]
+    floor = max(cfg["burst_min_m3h"], 2 * scale / (step.total_seconds() / 3600))
+    rows = []
+    for i in range(cfg["burst_chunks"]):
+        a = end - win + i * step
+        f, t = series.flow(a, a + step, cfg["max_gap_h"]), typical(series, a, a + step, cfg)
+        if f is None or t is None or f < max(t * cfg["burst_ratio"], t + floor):
+            return None
+        rows.append((f, t))
+    flow = sum(f for f, _ in rows) / len(rows)
+    usual = sum(t for _, t in rows) / len(rows)
+    lph = round((flow - usual) * 1000)
+    return {"since": (end - win).isoformat() + "Z", "flow_m3h": round(flow, 3), "usual_m3h": round(usual, 3),
+            "litres_per_hour": lph, "litres_per_day": lph * 24, "people_per_day": people(lph * 24, cfg)}
+
+
+def no_flow(series, now, scale, tz, cfg):
+    end = fresh_end(series, now, cfg)
+    if end is None:
+        return None
+    start = end - timedelta(hours=cfg["burst_window_h"])
+    h0, h1 = local(start, tz).hour, local(end, tz).hour
+    if not (cfg["noflow_day_start"] <= h0 and h1 < cfg["noflow_day_end"]):
+        return None
+    va, vb = series.at(start, cfg["max_gap_h"]), series.at(end, cfg["max_gap_h"])
+    usual = typical(series, start, end, cfg)
+    if va is None or vb is None or usual is None or usual < cfg["noflow_typical_min"]:
+        return None
+    if vb - va >= max(scale, 0.0005):
+        return None
+    return {"since": start.isoformat() + "Z", "usual_m3h": round(usual, 3)}
+
+
+def step_test(series, steps, cfg):
+    rows = []
+    for s in steps:
+        c, o = s["closed_at"], s.get("opened_at")
+        row = {k: s.get(k) for k in ("label", "zone_id")}
+        row.update(closed_at=c.isoformat() + "Z", opened_at=o.isoformat() + "Z" if o else None)
+        if o is None:
+            rows.append({**row, "state": "closed"})
+            continue
+        before = series.flow(c - timedelta(minutes=cfg["step_before_min"]), c, cfg["max_gap_h"])
+        during = series.flow(min(c + timedelta(minutes=cfg["step_settle_min"]), o), o, cfg["max_gap_h"])
+        if before is None or during is None:
+            rows.append({**row, "state": "no_data"})
+            continue
+        drop = before - during
+        rows.append({**row, "state": "done", "before_m3h": round(before, 4), "during_m3h": round(during, 4), "drop_m3h": round(drop, 4),
+                     "drop_pct": round(100 * drop / before, 1) if before > 0 else None})
+    done = [r for r in rows if r["state"] == "done"]
+    best = max(done, key=lambda r: r["drop_m3h"], default=None)
+    suspect = best if best and best["drop_m3h"] >= max(0.01, 0.25 * best["before_m3h"]) else None
+    lpd = round(suspect["drop_m3h"] * 24000) if suspect else None
+    return {"steps": rows, "suspect": suspect and {"label": suspect["label"], "zone_id": suspect["zone_id"]},
+            "litres_per_day": lpd, "people_per_day": people(lpd, cfg)}
 
 
 def consumption(series, start, end):

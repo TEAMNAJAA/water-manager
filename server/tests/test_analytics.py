@@ -48,7 +48,8 @@ def test_coarse_meter_does_not_false_alarm():
 
 
 def test_learning_without_history():
-    assert state([0.15] * 4).learning
+    assert state([0.15] * 3).learning
+    assert not state([0.15] * 4).learning
 
 
 def test_water_balance():

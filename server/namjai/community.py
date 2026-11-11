@@ -30,8 +30,11 @@ REWARDS = [
     {"id": "shop_discount", "points": 80, "en": "Local shop discount (when a sponsor joins)", "th": "ส่วนลดร้านค้า (เมื่อมีสปอนเซอร์)"},
 ]
 TITLES = [(2000, "Namjai Guardian"), (500, "Namjai Hero"), (1, "Namjai Friend")]
-REPAIR_KINDS = {"no_water", "leak", "wet_ground", "broken_tap", "low_pressure", "other", "leak_detected"}
-REPAIR_STATUS = ("open", "assigned", "fixing", "done", "cancelled")
+REPAIR_KINDS = {"no_water", "leak", "wet_ground", "broken_tap", "low_pressure", "other", "leak_detected", "burst_detected"}
+REPAIR_STATUS = ("open", "assigned", "fixing", "checking", "done", "cancelled")
+SYSTEM_KINDS = {"leak_detected", "burst_detected"}
+PROOF_KINDS = {"leak_detected", "burst_detected", "leak", "wet_ground"}
+STAFF_ROLES = ("caretaker", "committee", "admin")
 
 router = APIRouter(prefix="/api")
 
@@ -217,28 +220,108 @@ def km(a_lat, a_lon, b_lat, b_lon):
     return round(12742 * math.asin(math.sqrt(h)), 2)
 
 
+def may_read(p, m):
+    if p.role in STAFF_ROLES:
+        if p.role != "admin" and p.village_id != m.village_id:
+            raise HTTPException(403, "other village")
+        return
+    if m.kind == "main" and p.village_id == m.village_id:
+        return
+    if p.meter_id != m.id:
+        raise HTTPException(403, "you can only read your own meter")
+
+
 def job_dict(j, people=None):
+    from .analytics import people as to_people
     people = people or {}
     return {"id": j.id, "village_id": j.village_id, "zone_id": j.zone_id, "kind": j.kind, "source": j.source, "note": j.note,
             "lat": j.lat, "lon": j.lon, "photo": f"/api/repairs/{j.id}/photo.jpg" if j.photo else None,
-            "litres_per_day": j.litres_per_day, "size": j.size, "status": j.status,
+            "litres_per_day": j.litres_per_day, "people_per_day": to_people(j.litres_per_day), "proof": j.proof or {},
+            "size": j.size, "status": j.status,
             "technician": first_name(people.get(j.technician_id)) if j.technician_id else None, "technician_id": j.technician_id,
             "depot_id": j.depot_id, "parts": j.parts, "verified": j.verified, "created": iso(j.created), "updated": iso(j.updated),
             "history": j.history}
 
 
 def sync_leak_jobs(db, village):
-    for a in db.scalars(select(Alert).where(Alert.village_id == village.id, Alert.kind == "leak", Alert.level == "red", Alert.resolved.is_(None))):
+    alerts = db.scalars(select(Alert).where(Alert.village_id == village.id, Alert.kind.in_(("leak", "burst")), Alert.level == "red",
+                                            Alert.resolved.is_(None))).all()
+    for a in alerts:
         job = db.scalars(select(RepairJob).where(RepairJob.alert_id == a.id)).first()
         lpd = a.data.get("litres_per_day")
         if job is None:
             main = db.get(Meter, a.data.get("meter_id"))
-            db.add(RepairJob(village_id=village.id, kind="leak_detected", source="system", alert_id=a.id, litres_per_day=lpd, size="large",
-                             lat=main.lat if main else village.lat, lon=main.lon if main else village.lon,
-                             note=f"Night flow high since {a.data.get('started')}: about {lpd} L/day lost",
+            if a.kind == "leak":
+                kind, note = "leak_detected", f"Night flow high since {a.data.get('started')}: about {lpd} L/day lost"
+            else:
+                kind, note = "burst_detected", f"Flow far above usual for 2 hours: about {a.data.get('litres_per_hour')} L/h lost. Possible burst."
+            db.add(RepairJob(village_id=village.id, kind=kind, source="system", alert_id=a.id, litres_per_day=lpd, size="large",
+                             lat=main.lat if main else village.lat, lon=main.lon if main else village.lon, note=note,
                              history=[{"at": iso(utcnow()), "status": "open", "by": "NamJai"}]))
-        elif job.status not in ("done", "cancelled"):
+        elif job.status not in ("done", "cancelled", "checking"):
             job.litres_per_day = lpd
+    db.commit()
+
+
+def main_meter_of(db, village_id):
+    return db.scalars(select(Meter).where(Meter.village_id == village_id, Meter.kind == "main").order_by(Meter.id)).first()
+
+
+def start_proof(db, j, now):
+    from . import services as S
+    if j.kind not in PROOF_KINDS:
+        return False
+    v = db.get(Village, j.village_id)
+    main = main_meter_of(db, v.id)
+    if main is None:
+        return False
+    st = S.leak_state(db, v, main, now)
+    cfg_ = S.A.settings(v.settings)
+    if st.streak >= cfg_["watch_nights"] and st.excess_m3h:
+        leak = st.excess_m3h
+    elif j.alert_id and j.litres_per_day:
+        leak = j.litres_per_day / 24000
+    else:
+        return False
+    j.status = "checking"
+    j.proof = {"state": "waiting", "since": iso(now), "leak_m3h": round(leak, 4), "nights_needed": cfg_["proof_nights"], "nights_ok": 0}
+    return True
+
+
+def check_proofs(db, village, now):
+    from . import services as S
+    jobs = db.scalars(select(RepairJob).where(RepairJob.village_id == village.id, RepairJob.status == "checking")).all()
+    main = main_meter_of(db, village.id) if jobs else None
+    if not jobs or main is None:
+        return
+    cfg_ = S.A.settings(village.settings)
+    st = S.leak_state(db, village, main, now)
+    for j in jobs:
+        proof = dict(j.proof or {})
+        since = datetime.fromisoformat(proof["since"].rstrip("Z"))
+        post = [n for n in st.nights if n.flow is not None and n.baseline is not None and S.A.window(n.night_of, village.tz, cfg_)[0] >= since]
+        ok = bad = 0
+        for n in post:
+            ok, bad = (0, bad + 1) if n.high else (ok + 1, 0)
+        need = proof.get("nights_needed", cfg_["proof_nights"])
+        proof.update(nights_seen=len(post), nights_ok=ok,
+                     nights=[{"night_of": n.night_of.isoformat(), "flow": n.flow, "high": n.high} for n in post[-7:]])
+        if ok >= need:
+            tail = post[-need:]
+            after = sorted(max(0.0, n.flow - n.baseline) for n in tail)[len(tail) // 2]
+            stopped = round(max(0.0, proof["leak_m3h"] - after) * 24000)
+            proof.update(state="confirmed", confirmed=iso(now), after_m3h=round(after, 4), litres_stopped_per_day=stopped,
+                         people_per_day=S.A.people(stopped, cfg_))
+            j.status = "done"
+            j.history = [*j.history, {"at": iso(now), "status": "done", "by": "NamJai meter"}]
+            if j.verified and j.reported_by:
+                award(db, j.reported_by, j.village_id, "verified_report", f"job:{j.id}", when=now)
+        elif bad >= need:
+            proof.update(state="not_fixed", checked=iso(now))
+            j.status = "fixing"
+            j.history = [*j.history, {"at": iso(now), "status": "fixing", "by": "NamJai meter"}]
+        j.proof = proof
+        j.updated = now
     db.commit()
 
 
@@ -287,7 +370,9 @@ def me(p: Person = Depends(need()), db=Depends(get_db)):
     points = db.scalar(select(func.coalesce(func.sum(PointEntry.points), 0)).where(PointEntry.person_id == p.id))
     unpaid = db.scalars(select(Bill).where(Bill.meter_id == p.meter_id, Bill.status == "unpaid")).all() if p.meter_id else []
     meter = db.get(Meter, p.meter_id) if p.meter_id else None
+    village = db.get(Village, p.village_id) if p.village_id else None
     return {**person_dict(p), "points": int(points), "unpaid": len(unpaid), "unpaid_amount": round(sum(b.amount for b in unpaid), 2),
+            "currency": (village.settings or {}).get("currency", "THB") if village else "THB",
             "meter": {"id": meter.id, "label": meter.label, "n_digits": meter.n_digits} if meter else None}
 
 
@@ -483,11 +568,14 @@ def repairs_update(jid: int, body: RepairPatch, p: Person = Depends(need(*STAFF,
         raise HTTPException(422, "unknown status")
     if p.role == "technician" and "technician_id" not in changes and j.technician_id is None:
         changes["technician_id"] = p.id
+    before = j.status
     for k, val in changes.items():
         setattr(j, k, val)
     if changes.get("technician_id") and j.status == "open":
         j.status = "assigned"
-    if j.status == "done" and j.depot_id and j.parts and not any(h.get("parts_taken") for h in j.history):
+    if j.status == "done" and before not in ("done", "checking"):
+        start_proof(db, j, utcnow())
+    if j.status in ("done", "checking") and j.depot_id and j.parts and not any(h.get("parts_taken") for h in j.history):
         depot = db.get(Depot, j.depot_id)
         items = dict(depot.items or {})
         for part in j.parts:
