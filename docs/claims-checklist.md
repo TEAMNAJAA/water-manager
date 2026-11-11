@@ -12,6 +12,7 @@
 | ROI, money saved, water saved | only from pilot data in the real village | pilot report |
 | Offline capacity, battery runtime | measured on the device | hardware test log |
 | Simulated villages B, C, D (and A until the pilot) | always labelled "simulated" on screen and in voice-over | app shows the tag |
+| "Open source" for the Clip reader | AI-on-the-edge-device is free for non-commercial use only; credit it, and say scaling uses NamJai's own MIT firmware or a commercial licence | [docs/field-test.md](field-test.md) |
 
 Say plainly in the deck:
 

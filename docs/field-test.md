@@ -59,3 +59,16 @@ and add a photo. NamJai uses the pair as a coarse night reading.
 | 8–9 | tap closed, press **Mark repaired** on the job | "meter checking", then "confirmed by the meter" with litres stopped |
 
 Write down the bucket measurement; compare it with the litres per day NamJai estimates. Only real measurements go in the slides.
+
+## Licence of AI-on-the-edge-device
+
+Checked on 11 Nov 2026 in the project's `Licence.md` ("Dual Use License", version 1.0, 5 Jan 2025):
+
+- Free to use, modify and share for **private, non-commercial** purposes. A student pilot fits this.
+- **Commercial use** (selling, renting, providing as a service, building into a product) needs a separate licence from the author.
+- Credit the project and its source (https://github.com/jomjol/AI-on-the-edge-device) and keep its licence unchanged.
+- The authors say it must not be used for safety-relevant systems or systems with high reliability requirements.
+  NamJai only gives advice: people confirm readings and repairs.
+
+So NamJai credits AI-on-the-edge-device for the pilot. For scaling, NamJai has its own MIT-licensed Clip firmware
+(`firmware/`), or a commercial licence can be requested.
