@@ -1,0 +1,8 @@
+**/node_modules
+**/__pycache__
+**/*.egg-info
+.venv
+.run
+web/dist
+**/*.db
+hardware/stl

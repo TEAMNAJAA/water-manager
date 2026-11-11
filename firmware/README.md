@@ -1,5 +1,11 @@
 # NamJai Clip firmware
 
+Two ways to run a Clip:
+
+- **AI-on-the-edge-device** (used in the field test): open firmware that reads the meter on the ESP32-CAM itself and
+  sends each value to NamJai's webhook. Set-up in [docs/field-test.md](../docs/field-test.md).
+- **NamJai firmware** (this folder): sends photos and lets the NamJai server read them. Described below.
+
 ESP32-CAM (AI-Thinker) clipped onto the village main water meter. Every hour it:
 
 1. takes **two photos**, one with LED A and one with LED B (45° side lights, so one of them avoids glare),

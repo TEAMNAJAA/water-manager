@@ -100,7 +100,8 @@ def first_name(p):
 
 
 def person_dict(p):
-    return {"id": p.id, "name": p.name, "role": p.role, "village_id": p.village_id, "meter_id": p.meter_id, "demo": p.demo}
+    return {"id": p.id, "name": p.name, "role": p.role, "village_id": p.village_id, "network_id": p.network_id, "meter_id": p.meter_id,
+            "demo": p.demo}
 
 
 def award(db, person_id, village_id, reason, ref=None, points=None, when=None):
@@ -539,6 +540,16 @@ def repairs(vid: int, include_done: bool = True, db=Depends(get_db)):
         jobs = [j for j in jobs if j.status not in ("done", "cancelled")]
     people = {x.id: x for x in db.scalars(select(Person).where(Person.id.in_({j.technician_id for j in jobs if j.technician_id})))}
     return [job_dict(j, people) for j in sort_jobs(jobs)[:100]]
+
+
+@router.get("/technician/jobs")
+def technician_jobs(include_done: bool = True, p: Person = Depends(need("technician", "admin")), db=Depends(get_db)):
+    villages = {v.id: v for v in db.scalars(select(Village).where((Village.network_id == p.network_id) | (Village.id == p.village_id)))}
+    jobs = db.scalars(select(RepairJob).where(RepairJob.village_id.in_(villages))).all()
+    if not include_done:
+        jobs = [j for j in jobs if j.status not in ("done", "cancelled")]
+    people_ = {x.id: x for x in db.scalars(select(Person).where(Person.id.in_({j.technician_id for j in jobs if j.technician_id})))}
+    return [{**job_dict(j, people_), "village": villages[j.village_id].name} for j in sort_jobs(jobs)[:150]]
 
 
 @router.get("/repairs/{jid}")

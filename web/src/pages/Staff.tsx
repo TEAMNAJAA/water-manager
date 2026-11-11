@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, photoUrl } from "../api";
 import { useAuth } from "../auth";
 import { Layout, Loading } from "../components/Layout";
+import { ConnectClip, ImportLog, StepTest, VillageSettings } from "../components/FieldTools";
 import { RoiEditor } from "../components/RoiEditor";
 import type { VillageStatus } from "../components/Status";
 import { ago, day, money, useApi } from "../hooks";
@@ -67,6 +68,14 @@ export default function Staff() {
             <Link className={`btn small ${silent ? "primary" : ""}`} to={`/read?meter=${main.id}`}>📷 {t("Photograph the main meter now")}</Link>
           </div>
           <details style={{ marginTop: 10 }}>
+            <summary style={{ cursor: "pointer", fontWeight: 600 }}>🔑 {t("Connect a Clip")}</summary>
+            <ConnectClip meterId={main.id} />
+          </details>
+          <details style={{ marginTop: 10 }}>
+            <summary style={{ cursor: "pointer", fontWeight: 600 }}>💾 {t("Add data from the Clip's SD card")}</summary>
+            <ImportLog meterId={main.id} />
+          </details>
+          <details style={{ marginTop: 10 }}>
             <summary style={{ cursor: "pointer", fontWeight: 600 }}>🎯 {t("Set the Clip's digit box")}</summary>
             <RoiEditor meterId={main.id} />
           </details>
@@ -124,6 +133,18 @@ export default function Staff() {
           </div>
         )}
       </div>
+      {s && main && (
+        <div className="card stack">
+          <h2>🚰 {t("Step test (find the soi)")}</h2>
+          <StepTest s={s} />
+        </div>
+      )}
+      {vid && (
+        <details className="card">
+          <summary style={{ cursor: "pointer", fontWeight: 700 }}>⚙️ {t("Village settings")}</summary>
+          <VillageSettings vid={vid} />
+        </details>
+      )}
     </Layout>
   );
 }

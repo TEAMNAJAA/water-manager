@@ -91,6 +91,9 @@ def test_repairs_and_verified_points(client, demo, session):
     tech = login(client, a, "technician")
     near = client.get(f"/api/repairs/{job['id']}/technicians").json()
     assert near["technicians"][0]["km"] is not None and near["depots"]
+    mine = client.get("/api/technician/jobs", headers=tech).json()
+    assert {j["village"] for j in mine} >= {"Village B", "Village C"} and any(j["id"] == job["id"] for j in mine)
+    assert client.get("/api/technician/jobs", headers=res).status_code == 403
     assigned = client.patch(f"/api/repairs/{job['id']}", json={"status": "fixing"}, headers=tech).json()
     assert assigned["technician"] == "Anan"
     before = client.get("/api/me/points", headers=res).json()["total"]

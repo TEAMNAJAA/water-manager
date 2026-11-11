@@ -3,17 +3,21 @@ import { Link, useParams } from "react-router-dom";
 import { api, photoUrl } from "../api";
 import { useAuth } from "../auth";
 import { Chip, Layout, Loading } from "../components/Layout";
-import { ago, litres, useApi } from "../hooks";
+import { ago, day, litres, people, useApi } from "../hooks";
 import { useT } from "../i18n";
 import { KINDS } from "./Report";
 
 type Job = { id: number; kind: string; source: string; note: string | null; status: string; litres_per_day: number | null; size: string | null;
   technician: string | null; technician_id: number | null; created: string; updated: string; photo: string | null; lat: number | null; lon: number | null;
-  verified: boolean; parts: { name: string; qty: number }[]; history: { at: string; status: string; by: string }[]; village_id: number };
+  verified: boolean; parts: { name: string; qty: number }[]; history: { at: string; status: string; by: string }[]; village_id: number;
+  people_per_day: number | null; proof: Proof };
+
+export type Proof = { state?: "waiting" | "confirmed" | "not_fixed"; since?: string; nights_needed?: number; nights_ok?: number; nights_seen?: number;
+  leak_m3h?: number; litres_stopped_per_day?: number; people_per_day?: number; confirmed?: string };
 
 const STATUS: Record<string, { label: string; kind?: "good" | "warning" | "critical" }> = {
   open: { label: "Open", kind: "critical" }, assigned: { label: "Assigned", kind: "warning" }, fixing: { label: "Fixing", kind: "warning" },
-  done: { label: "Done", kind: "good" }, cancelled: { label: "Cancelled" },
+  checking: { label: "Repaired – meter checking", kind: "warning" }, done: { label: "Done", kind: "good" }, cancelled: { label: "Cancelled" },
 };
 
 export function JobStatus({ s }: { s: string }) {
@@ -32,7 +36,8 @@ export default function Repairs() {
   const { t, lang } = useT();
   const { me } = useAuth();
   const [filter, setFilter] = useState<"active" | "all">("active");
-  const { data, error } = useApi<Job[]>(me?.village_id ? `/api/villages/${me.village_id}/repairs` : null, [me?.village_id]);
+  const tech = me?.role === "technician";
+  const { data, error } = useApi<(Job & { village?: string })[]>(tech ? "/api/technician/jobs" : me?.village_id ? `/api/villages/${me.village_id}/repairs` : null, [me?.village_id, tech]);
   const jobs = (data ?? []).filter((j) => filter === "all" || !["done", "cancelled"].includes(j.status));
   return (
     <Layout title={t("Repairs")}>
@@ -41,7 +46,7 @@ export default function Repairs() {
           <button aria-pressed={filter === "active"} onClick={() => setFilter("active")}>{t("Active")}</button>
           <button aria-pressed={filter === "all"} onClick={() => setFilter("all")}>{t("All")}</button>
         </div>
-        <Link to="/report" className="btn danger small">⚠️ {t("Report a problem")}</Link>
+        {!tech && <Link to="/report" className="btn danger small">⚠️ {t("Report a problem")}</Link>}
       </div>
       <p className="small muted">{t("Biggest water loss first.")} {t("Everyone sees this.")}</p>
       {!data ? <Loading error={error} /> : (
@@ -53,8 +58,8 @@ export default function Repairs() {
                 <span className="row" style={{ gap: 10 }}>
                   <span style={{ fontSize: 28 }}>{KINDS[j.kind]?.icon ?? "🔧"}</span>
                   <span>
-                    <b>{t(KINDS[j.kind]?.label ?? j.kind)}</b> <span className="muted">#{j.id}</span><br />
-                    <span className="small muted">{ago(j.created, lang)}{j.litres_per_day ? ` · ${litres(j.litres_per_day)} ${t("lost per day")}` : ""}{j.technician ? ` · 👷 ${j.technician}` : ""}</span>
+                    <b>{t(KINDS[j.kind]?.label ?? j.kind)}</b> <span className="muted">#{j.id}{j.village ? ` · ${j.village}` : ""}</span><br />
+                    <span className="small muted">{ago(j.created, lang)}{j.litres_per_day ? ` · ${litres(j.litres_per_day)} ${t("lost per day")}` : ""}{j.people_per_day ? ` · ${t("water for {p} people", { p: people(j.people_per_day) })}` : ""}{j.technician ? ` · 👷 ${j.technician}` : ""}</span>
                   </span>
                 </span>
                 <JobStatus s={j.status} />
@@ -71,6 +76,27 @@ export default function Repairs() {
         </details>
       ))}
     </Layout>
+  );
+}
+
+export function ProofBox({ proof, lang }: { proof: Proof; lang: string }) {
+  const { t } = useT();
+  if (!proof?.state) return null;
+  if (proof.state === "confirmed")
+    return (
+      <div className="notice good">
+        <b>✓ {t("Confirmed by the meter")}</b>
+        <p style={{ margin: "4px 0 0" }}>{t("Night flow is back to normal. About {l} a day stopped – water for {p} people.", { l: litres(proof.litres_stopped_per_day), p: people(proof.people_per_day) })}</p>
+        <span className="small muted">{day(proof.confirmed, lang)}</span>
+      </div>
+    );
+  if (proof.state === "not_fixed")
+    return <div className="notice critical"><b>{t("The meter still sees the leak")}</b><p style={{ margin: "4px 0 0" }}>{t("Night flow stayed high after the repair, so the job is open again.")}</p></div>;
+  return (
+    <div className="notice warning">
+      <b>⏳ {t("Waiting for the meter to confirm")}</b>
+      <p style={{ margin: "4px 0 0" }}>{t("{ok} of {need} normal nights so far.", { ok: proof.nights_ok ?? 0, need: proof.nights_needed ?? 2 })}</p>
+    </div>
   );
 }
 
@@ -102,12 +128,15 @@ export function RepairDetail() {
         <div className="row between"><span style={{ fontSize: 40 }}>{KINDS[j.kind]?.icon}</span><JobStatus s={j.status} /></div>
         {j.note && <p>{j.note}</p>}
         {j.litres_per_day != null && <div className="kv"><span className="muted">{t("lost per day")}</span><b>{litres(j.litres_per_day)}</b></div>}
+        {j.people_per_day != null && <div className="kv"><span className="muted">{t("Enough for")}</span><b>{t("{p} people a day", { p: people(j.people_per_day) })}</b></div>}
+        <ProofBox proof={j.proof} lang={lang} />
         {j.technician && <div className="kv"><span className="muted">{t("Technician")}</span><b>👷 {j.technician}</b></div>}
         {j.verified && <Chip kind="good">✓ {t("Leak confirmed by technician")}</Chip>}
         {j.photo && <img src={photoUrl(j.photo)} alt="" style={{ borderRadius: 12 }} />}
         {j.lat != null && <a className="btn block" href={`https://www.openstreetmap.org/?mlat=${j.lat}&mlon=${j.lon}#map=18/${j.lat}/${j.lon}`} target="_blank" rel="noreferrer">📍 Map</a>}
       </div>
-      {can && !["done", "cancelled"].includes(j.status) && (
+      <Link className="btn block" to={`/report/${j.id}`}>📄 {t("Evidence report")}</Link>
+      {can && !["done", "cancelled", "checking"].includes(j.status) && (
         <div className="card stack">
           {tech && !j.technician_id && <button className="btn primary block" onClick={() => patch({ status: "assigned" })}>👷 {t("Assign to me")}</button>}
           {j.status !== "fixing" && <button className="btn block" onClick={() => patch({ status: "fixing" })}>🔧 {t("Start fixing")}</button>}
@@ -126,7 +155,8 @@ export function RepairDetail() {
               <input type="number" min={1} value={qty} onChange={(e) => setQty(Number(e.target.value))} style={{ flex: 1 }} />
             </div>
           )}
-          <button className="btn good block" onClick={finish}>✅ {t("Mark done")}</button>
+          <button className="btn good block" onClick={finish}>✅ {t("Mark repaired")}</button>
+          <p className="small muted">{t("For a leak the meter saw, the job closes after 2 normal nights.")}</p>
         </div>
       )}
       {staff && (

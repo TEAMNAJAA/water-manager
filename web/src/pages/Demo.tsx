@@ -5,6 +5,7 @@ import { api, BASE } from "../api";
 import { Layout, Loading } from "../components/Layout";
 import { useApi } from "../hooks";
 import { useT } from "../i18n";
+import { LeakGame } from "../components/LeakGame";
 import { DemoLogin } from "./Login";
 
 type Sample = { file: string; condition: string; n_digits: number; truth: string; roi: number[] | null };
@@ -74,6 +75,11 @@ export default function Demo() {
         <p>A small camera clip reads the main meter every hour. NamJai watches the night flow, raises a 🟡 then 🔴 alert when it stays high for several nights,
           narrows the leak down to a soi, sends the nearest technician with the right parts, and shows every household the repair fund.</p>
         <p className="notice warning small">Everything on this page runs on <b>simulated villages</b> (marked “Simulated data”). No sign-up needed.</p>
+        <p style={{ fontWeight: 800, fontSize: "1.2rem", margin: "8px 0 0" }}>See. Locate. Fix. Prove.</p>
+      </section>
+      <section className="card">
+        <h2>🎯 {t("Find the leak in 30 seconds")}</h2>
+        <LeakGame />
       </section>
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
         <div className="card">

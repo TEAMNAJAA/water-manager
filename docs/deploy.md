@@ -14,11 +14,11 @@
 5. Actions → **deploy-space** → Run workflow (it also runs on every push to `main`).
 6. Check `https://your-name-namjai.hf.space/health`.
 
-## Web app → Cloudflare Pages (free)
+The Space serves the web app as well: the judges' page is `https://your-name-namjai.hf.space/demo`.
 
-Connect the GitHub repo, then: production branch `main`, root directory `web`, build command `npm run build`,
-output directory `dist`, environment variable `VITE_API_URL` = `https://your-name-namjai.hf.space`.
+## Web app on Cloudflare Pages (optional)
 
-The judges' page is `https://<your-pages-domain>/demo`.
+Only if you want the app on its own domain: connect the GitHub repo, then production branch `main`, root directory `web`,
+build command `npm run build`, output directory `dist`, environment variable `VITE_API_URL` = `https://your-name-namjai.hf.space`.
 
 Check the current free-tier limits of each service before relying on them.

@@ -9,9 +9,15 @@ Built for the Xylem Global Student Innovation Challenge 2026 (Water Access).
 |---|---|---|
 | Meter reading from photos | [`ocr/`](ocr) | v0.1 – synthetic benchmark, waiting for real photos |
 | NamJai Clip firmware (ESP32-CAM) | [`firmware/`](firmware) | v0.1 – builds in CI, not yet tested on hardware |
-| Server, database, leak detection, simulator | [`server/`](server) | v0.1 – tested on simulated villages |
+| Server: Clip webhook, leak + burst detection, Proof-of-Repair, step test, simulator | [`server/`](server) | v0.2 – tested on simulated data |
 | Web app (PWA), dashboards, judges' demo, SMS simulator | [`web/`](web) | v0.1 – tested in Chromium on simulated villages |
 | Hardware: parts list, wiring, 3D-printed hood, test plan | [`hardware/`](hardware) | v0.1 – hood rendered, not yet printed or tested |
+
+See. Locate. Fix. Prove.
+
+## Field test on a laptop
+
+[docs/field-test.md](docs/field-test.md) – connect a Clip running AI-on-the-edge-device and run the home leak test.
 
 ## Try it locally
 

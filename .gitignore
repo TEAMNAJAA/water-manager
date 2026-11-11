@@ -10,3 +10,4 @@ ocr/data/synthetic/
 *.egg-info/
 *.db
 .run/
+*.tsbuildinfo

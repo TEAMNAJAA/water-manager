@@ -22,8 +22,21 @@ export function useApi<T = any>(path: string | null, deps: unknown[] = []) {
   return { data, error, loading, reload: load, setData };
 }
 
-export const money = (n: number | null | undefined) =>
-  n == null ? "–" : `${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ฿`;
+let currency = "THB";
+export const setCurrency = (c: string | null | undefined) => {
+  if (c) currency = c;
+};
+
+export const money = (n: number | null | undefined) => {
+  if (n == null) return "–";
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 2, minimumFractionDigits: 0 }).format(n);
+  } catch {
+    return `${n.toLocaleString()} ${currency}`;
+  }
+};
+
+export const people = (n: number | null | undefined) => (n == null ? "–" : Math.round(n).toLocaleString());
 
 export const litres = (n: number | null | undefined) => (n == null ? "–" : `${Math.round(n).toLocaleString()} L`);
 

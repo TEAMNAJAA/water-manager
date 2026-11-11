@@ -11,6 +11,20 @@ export default function Home() {
   const { data: s, error } = useApi<VillageStatus>(me?.village_id ? `/api/villages/${me.village_id}/status` : null, [me?.village_id]);
   if (loading) return <Loading />;
   if (!me) return <Navigate to="/login" replace />;
+  if (me.role === "technician")
+    return (
+      <Layout title={`👷 ${me.name}`} back={false}>
+        <p className="muted" style={{ marginTop: 16 }}>{t("You work for every village in the network.")}</p>
+        <div className="grid" style={{ marginTop: 12 }}>
+          <Link to="/repairs" className="tile"><span className="icon">🔧</span>{t("Repairs")}</Link>
+          {me.network_id && <Link to={`/network/${me.network_id}`} className="tile"><span className="icon">🤝</span>{t("District network")}</Link>}
+        </div>
+        <div className="row between small muted" style={{ marginTop: 20 }}>
+          <span>{me.name} · {t("Technician")}</span>
+          <button className="btn small" onClick={logout}>{t("Log out")}</button>
+        </div>
+      </Layout>
+    );
   const tiles = [
     { to: "/read", icon: "📷", label: me.meter || staff ? "Read my meter" : "Read a meter", show: true },
     { to: "/bills", icon: "🧾", label: "My bills", badge: me.unpaid, show: !!me.meter_id },

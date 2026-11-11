@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
@@ -21,6 +21,46 @@ const HISTORY: Record<string, string> = {
   jump_too_large: "This number is much higher than possible since last time. Please check it.",
 };
 
+function TypedForm({ meterId, staff, onDone }: { meterId: number; staff: boolean; onDone: (queued: boolean) => void }) {
+  const { t } = useT();
+  const file = useRef<HTMLInputElement>(null);
+  const [value, setValue] = useState("");
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [msg, setMsg] = useState("");
+  const [force, setForce] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    setMsg("");
+    const f = new FormData();
+    f.append("value", value.replace(",", "."));
+    f.append("taken_at", new Date().toISOString());
+    if (force) f.append("force", "true");
+    if (photo) f.append("file", photo, "meter.jpg");
+    try {
+      const r = await api(`/api/meters/${meterId}/typed`, { form: f, queue: "Meter reading" });
+      onDone(!!r.queued);
+    } catch (e: any) {
+      const issues: string[] = e.detail?.issues ?? [];
+      setMsg(issues.map((i) => t(HISTORY[i] ?? i)).join(" ") || String(e.detail ?? e.message));
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="card stack" style={{ marginTop: 12 }}>
+      <label htmlFor="typed">{t("Type the number on the meter")}</label>
+      <input id="typed" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} placeholder="0345.426"
+        style={{ fontSize: "1.6rem", textAlign: "center", letterSpacing: "0.15em" }} />
+      <p className="small muted">{t("Type every digit you see, the red ones too.")}</p>
+      <button className="btn block" onClick={() => file.current?.click()}>📷 {photo ? "✓ " : ""}{t("Add a photo of the meter")}{staff ? "" : " *"}</button>
+      <input ref={file} type="file" accept="image/*" capture="environment" hidden onChange={(e) => setPhoto(e.target.files?.[0] ?? null)} />
+      {msg && <p className="notice warning">{msg}</p>}
+      {msg && staff && <label className="row"><input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> {t("Save anyway (I checked the number)")}</label>}
+      <button className="btn primary block" disabled={busy || !value || (!photo && !staff)} onClick={save}>{t("Save")}</button>
+    </div>
+  );
+}
+
 export default function ReadMeter() {
   const { t } = useT();
   const { me, staff, refresh } = useAuth();
@@ -35,6 +75,7 @@ export default function ReadMeter() {
   const [fix, setFix] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: string; text: string } | null>(null);
   const [done, setDone] = useState(false);
+  const [typed, setTyped] = useState(false);
 
   const upload = async (sh: Shot) => {
     if (!meter) return;
@@ -43,7 +84,7 @@ export default function ReadMeter() {
     setMsg(null);
     const f = new FormData();
     f.append("file", sh.blob, "meter.jpg");
-    const q = sh.roi ? `?roi=${sh.roi.join(",")}` : "";
+    const q = `?taken_at=${encodeURIComponent(new Date().toISOString())}${sh.roi ? `&roi=${sh.roi.join(",")}` : ""}`;
     try {
       const r = await api<Result>(`/api/meters/${meter.id}/photo${q}`, { form: f, queue: "Meter photo" });
       setRes(r);
@@ -74,6 +115,7 @@ export default function ReadMeter() {
     setFix(null);
     setMsg(null);
     setDone(false);
+    setTyped(false);
   };
 
   if (!me) return <Loading />;
@@ -93,11 +135,26 @@ export default function ReadMeter() {
         <div className="card center stack">
           <div style={{ fontSize: 56 }}>✅</div>
           <h2>{t("Saved. Thank you!")}</h2>
+          {msg && <div className={`notice ${msg.kind}`}>{msg.text}</div>}
           <button className="btn block" onClick={reset}>📷 {t("Read a meter")}</button>
           <Link className="btn primary block" to="/">🏠 NamJai</Link>
         </div>
+      ) : typed && meter ? (
+        <>
+          <TypedForm meterId={meter.id} staff={staff} onDone={(queued) => {
+            setDone(true);
+            if (queued) setMsg({ kind: "good", text: t("Saved on this phone. It will be sent when you are online.") });
+            refresh();
+          }} />
+          <button className="btn block" onClick={() => setTyped(false)}>📷 {t("Take a photo instead")}</button>
+        </>
       ) : !shot ? (
-        meter && <div style={{ marginTop: 12 }}><Camera onShot={upload} /></div>
+        meter && (
+          <div style={{ marginTop: 12 }} className="stack">
+            <Camera onShot={upload} />
+            <button className="btn block" onClick={() => setTyped(true)}>⌨️ {t("Type the number instead")}</button>
+          </div>
+        )
       ) : (
         <div className="stack" style={{ marginTop: 12 }}>
           <img src={shot.url} alt="" style={{ borderRadius: 12, maxHeight: 220, objectFit: "contain", width: "100%", background: "#000" }} />

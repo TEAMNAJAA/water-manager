@@ -1,13 +1,15 @@
 import { useT } from "../i18n";
-import { day, litres } from "../hooks";
+import { day, litres, people } from "../hooks";
 
 export type VillageStatus = {
   id: number; name: string; level: "green" | "yellow" | "red"; simulated: boolean;
   alerts: { kind: string; level: string; data: any }[];
   leak: { level: string; streak: number; started: string | null; litres_per_day: number | null; learning: boolean } | null;
   devices: { id: string; last_seen: string | null }[];
-  meters: { id: number; kind: string; label: string; zone_id: number | null; lat: number | null; lon: number | null; scale: number; n_digits: number }[];
+  meters: { id: number; kind: string; label: string; zone_id: number | null; lat: number | null; lon: number | null; scale: number; n_digits: number; resolution: number }[];
   zones: { id: number; name: string }[];
+  settings?: { currency: string; price_per_m3: number; min_charge: number; agencies: { name: string; email?: string; phone?: string }[]; zones: { id: number; name: string }[] };
+  network_id?: number | null;
 };
 
 const ICON = { green: "✓", yellow: "!", red: "‼" };
@@ -16,10 +18,16 @@ export function StatusCard({ s }: { s: VillageStatus }) {
   const { t, lang } = useT();
   const title = { green: "Water system is OK", yellow: "Watching a possible problem", red: "Leak found – repair team notified" }[s.level];
   const lines: string[] = [];
+  const burst = s.alerts.find((a) => a.kind === "burst");
+  if (burst) lines.push(t("Possible burst: flow far above usual for 2 hours, about {l} lost per hour.", { l: litres(burst.data.litres_per_hour) }));
   const leak = s.alerts.find((a) => a.kind === "leak");
-  if (leak) lines.push(t("Night flow high for {n} nights since {d}, about {l} lost per day.", { n: leak.data.nights, d: day(leak.data.started, lang), l: litres(leak.data.litres_per_day) }));
+  if (leak) {
+    lines.push(t("Night flow high for {n} nights since {d}, about {l} lost per day.", { n: leak.data.nights, d: day(leak.data.started, lang), l: litres(leak.data.litres_per_day) }));
+    if (leak.data.people_per_day) lines.push(t("That is the daily water of about {p} people.", { p: people(leak.data.people_per_day) }));
+  }
   else if (s.leak?.learning) lines.push(t("Learning the village's normal night flow…"));
   else lines.push(t("Night flow is normal."));
+  if (s.alerts.some((a) => a.kind === "no_flow")) lines.push(t("No water has flowed for 2 hours at a time when it usually does. Check the pump and tank."));
   if (s.alerts.some((a) => a.kind === "clip_silent")) lines.push(t("Main meter camera is offline – the caretaker reads it by phone."));
   if (s.alerts.some((a) => a.kind === "house_high")) lines.push(t("A house is using much more water than usual – check for leaks inside."));
   return (

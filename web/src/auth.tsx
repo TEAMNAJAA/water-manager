@@ -1,8 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { api, token } from "./api";
+import { setCurrency } from "./hooks";
 
-export type Me = { id: number; name: string; role: string; village_id: number | null; meter_id: number | null; demo: boolean;
-  points: number; unpaid: number; unpaid_amount: number; meter: { id: number; label: string; n_digits: number } | null };
+export type Me = { id: number; name: string; role: string; village_id: number | null; network_id: number | null; meter_id: number | null; demo: boolean;
+  points: number; unpaid: number; unpaid_amount: number; currency?: string; meter: { id: number; label: string; n_digits: number } | null };
 
 type Ctx = { me: Me | null; loading: boolean; login: (t: string) => Promise<void>; logout: () => void; refresh: () => Promise<void>; staff: boolean };
 const AuthCtx = createContext<Ctx>(null!);
@@ -18,6 +19,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       const m = await api<Me>("/api/me");
+      setCurrency(m.currency);
       setMe(m);
       localStorage.setItem("namjai.me", JSON.stringify(m));
     } catch (e: any) {
@@ -26,7 +28,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setMe(null);
       } else {
         const cached = localStorage.getItem("namjai.me");
-        if (cached) setMe(JSON.parse(cached));
+        if (cached) {
+          const m = JSON.parse(cached);
+          setCurrency(m.currency);
+          setMe(m);
+        }
       }
     }
     setLoading(false);

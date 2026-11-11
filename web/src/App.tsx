@@ -4,6 +4,7 @@ import { I18nProvider } from "./i18n";
 import Bills from "./pages/Bills";
 import Dashboard, { Network } from "./pages/Dashboard";
 import Demo from "./pages/Demo";
+import EvidenceReport from "./pages/EvidenceReport";
 import Funds from "./pages/Funds";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
@@ -36,6 +37,7 @@ export default function App() {
             <Route path="/network/:id" element={<Network />} />
             <Route path="/demo" element={<Demo />} />
             <Route path="/sms" element={<Sms />} />
+            <Route path="/report/:id" element={<EvidenceReport />} />
             <Route path="*" element={<Home />} />
           </Routes>
         </BrowserRouter>

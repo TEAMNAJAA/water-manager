@@ -14,7 +14,7 @@ jobs:
       - name: Build the Space folder
         run: |
           mkdir space
-          cp -r ocr server space/
+          cp -r ocr server web space/
           rm -rf space/ocr/data space/ocr/reports space/ocr/*.egg-info space/server/tests
           cp server/Dockerfile space/Dockerfile
           cat > space/README.md <<EOF
@@ -38,6 +38,9 @@ jobs:
           git init -q -b main
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
+          git lfs install --local
+          git lfs track "*.png" "*.jpg" "*.jpeg" "*.ico" "*.webp"
+          git add .gitattributes
           git add -A
           git commit -q -m "Deploy ${GITHUB_SHA::7}"
           git push --force "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" main

@@ -198,3 +198,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .sim-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; background: var(--warning-bg); color: var(--warning-ink); font-size: 0.75rem; font-weight: 700; }
 .spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--brand); animation: spin 0.8s linear infinite; margin: 12px auto; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+@media print {
+  .top, .no-print, .notice.small { display: none !important; }
+  body, .card { background: #fff !important; box-shadow: none !important; }
+  .app { max-width: none; padding: 0; }
+}
