@@ -90,6 +90,7 @@ export default function Demo() {
         <div className="card">
           <h2>2 · See the data</h2>
           <div className="stack">
+            {red && <Link className="btn block" to={`/story/${red.id}`}>🎬 The leak story: See → Locate → Fix → Prove</Link>}
             {red && <Link className="btn block" to={`/dashboard/${red.id}`}>📊 Village dashboard (leak)</Link>}
             {red?.network_id && <Link className="btn block" to={`/network/${red.network_id}`}>🤝 District network map</Link>}
             <Link className="btn block" to="/sms">📱 SMS for keypad phones</Link>

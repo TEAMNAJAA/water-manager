@@ -42,6 +42,7 @@ export default function Dashboard() {
     <Layout title={`${t("Dashboard")} · ${s.name}`} wide>
       <StatusCard s={s} />
       {s.simulated && <p><span className="sim-tag">{t("Simulated data")}</span></p>}
+      <Link className="btn block" to={`/story/${id}`}>🎬 {t("Leak story")}: See → Locate → Fix → Prove</Link>
       <div className="card">
         <div className="row between"><h2>{t("Hourly flow at the main meter")}</h2>
           <div className="tabs">{[2, 7, 14].map((d) => <button key={d} aria-pressed={days === d} onClick={() => setDays(d)}>{d}d</button>)}</div>

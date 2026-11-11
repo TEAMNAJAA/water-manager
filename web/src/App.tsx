@@ -14,6 +14,7 @@ import ReadMeter from "./pages/ReadMeter";
 import Repairs, { RepairDetail } from "./pages/Repairs";
 import Report from "./pages/Report";
 import Sms from "./pages/Sms";
+import Story from "./pages/Story";
 import Staff from "./pages/Staff";
 
 export default function App() {
@@ -38,6 +39,7 @@ export default function App() {
             <Route path="/demo" element={<Demo />} />
             <Route path="/sms" element={<Sms />} />
             <Route path="/report/:id" element={<EvidenceReport />} />
+            <Route path="/story/:id" element={<Story />} />
             <Route path="*" element={<Home />} />
           </Routes>
         </BrowserRouter>
