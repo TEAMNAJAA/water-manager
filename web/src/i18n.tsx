@@ -166,6 +166,7 @@ const TH: Record<string, string> = {
   "Show table": "แสดงตาราง",
   "Hide table": "ซ่อนตาราง",
   "Village map": "แผนที่หมู่บ้าน",
+  "When you read it": "เวลาที่อ่านเลข",
   "You work for every village in the network.": "คุณดูแลทุกหมู่บ้านในเครือข่าย",
   "Possible burst: flow far above usual for 2 hours, about {l} lost per hour.": "อาจมีท่อแตก น้ำไหลสูงผิดปกติต่อเนื่อง 2 ชั่วโมง หายประมาณ {l} ต่อชั่วโมง",
   "That is the daily water of about {p} people.": "เท่ากับน้ำใช้ต่อวันของคนประมาณ {p} คน",

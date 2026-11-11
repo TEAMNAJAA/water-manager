@@ -25,6 +25,11 @@ function TypedForm({ meterId, staff, onDone }: { meterId: number; staff: boolean
   const { t } = useT();
   const file = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState("");
+  const [when, setWhen] = useState(() => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  });
   const [photo, setPhoto] = useState<File | null>(null);
   const [msg, setMsg] = useState("");
   const [force, setForce] = useState(false);
@@ -34,7 +39,7 @@ function TypedForm({ meterId, staff, onDone }: { meterId: number; staff: boolean
     setMsg("");
     const f = new FormData();
     f.append("value", value.replace(",", "."));
-    f.append("taken_at", new Date().toISOString());
+    f.append("taken_at", new Date(when).toISOString());
     if (force) f.append("force", "true");
     if (photo) f.append("file", photo, "meter.jpg");
     try {
@@ -52,6 +57,8 @@ function TypedForm({ meterId, staff, onDone }: { meterId: number; staff: boolean
       <input id="typed" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} placeholder="0345.426"
         style={{ fontSize: "1.6rem", textAlign: "center", letterSpacing: "0.15em" }} />
       <p className="small muted">{t("Type every digit you see, the red ones too.")}</p>
+      <label htmlFor="when">{t("When you read it")}</label>
+      <input id="when" type="datetime-local" value={when} max={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)} onChange={(e) => setWhen(e.target.value)} />
       <button className="btn block" onClick={() => file.current?.click()}>📷 {photo ? "✓ " : ""}{t("Add a photo of the meter")}{staff ? "" : " *"}</button>
       <input ref={file} type="file" accept="image/*" capture="environment" hidden onChange={(e) => setPhoto(e.target.files?.[0] ?? null)} />
       {msg && <p className="notice warning">{msg}</p>}
