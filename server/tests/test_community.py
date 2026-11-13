@@ -168,3 +168,20 @@ def test_demo_keeps_running(client, session):
     assert levels["Village B"] == "red" and levels["Village A (pilot)"] == "green"
     assert not any(a.kind == "clip_silent" for v in session.query(Village) if v.name != "Village D" for a in S.open_alerts(session, v.id))
     assert demo_tick(session, NOW + timedelta(hours=21)) == "reseeded"
+
+
+def test_village_chat_and_repair_eta(client, demo):
+    a, b = demo["Village A"].id, demo["Village B"].id
+    res, care, tech = login(client, a, "resident"), login(client, a, "caretaker"), login(client, a, "technician")
+    assert client.get(f"/api/villages/{a}/comments").status_code == 401
+    assert client.post(f"/api/villages/{b}/comments", json={"text": "hi"}, headers=res).status_code == 403
+    assert client.post(f"/api/villages/{a}/comments", json={"text": " "}, headers=res).status_code == 422
+    first = client.post(f"/api/villages/{a}/comments", json={"text": "Water is weak at the temple"}, headers=res).json()
+    assert first["role"] == "resident"
+    jid = client.post(f"/api/villages/{a}/repairs", json={"kind": "broken_tap", "note": "tap"}, headers=res).json()["id"]
+    j = client.patch(f"/api/repairs/{jid}", json={"status": "fixing", "eta": "2026-11-03T10:30:00+07:00"}, headers=tech).json()
+    assert j["eta"] == "2026-11-03T03:30:00Z" and j["technician_id"]
+    client.patch(f"/api/repairs/{jid}", json={"status": "done"}, headers=care)
+    chat = client.get(f"/api/villages/{a}/comments", params={"after": first["id"]}, headers=tech).json()
+    notes = [c["text"] for c in chat if c["role"] == "system"]
+    assert any("should be finished by" in n for n in notes) and any(f"#{jid} is done" in n for n in notes)

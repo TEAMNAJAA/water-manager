@@ -204,6 +204,7 @@ class RepairJob(Base):
     updated: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     history: Mapped[list] = mapped_column(JSON, default=list)
     proof: Mapped[dict | None] = mapped_column(JSON, default=dict)
+    eta: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class Depot(Base):
@@ -246,3 +247,15 @@ class StepTest(Base):
     steps: Mapped[list] = mapped_column(JSON, default=list)
     finished: Mapped[datetime | None] = mapped_column(DateTime)
     note: Mapped[str | None] = mapped_column(String(300))
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    village_id: Mapped[int] = mapped_column(ForeignKey("villages.id"), index=True)
+    person_id: Mapped[int | None] = mapped_column(ForeignKey("people.id"))
+    job_id: Mapped[int | None] = mapped_column(ForeignKey("repair_jobs.id"))
+    name: Mapped[str] = mapped_column(String(80))
+    role: Mapped[str] = mapped_column(String(12))
+    text: Mapped[str] = mapped_column(String(500))
+    created: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)

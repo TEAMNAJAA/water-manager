@@ -8,7 +8,7 @@ import { useT } from "../i18n";
 import { KINDS } from "./Report";
 
 type Job = { id: number; kind: string; source: string; note: string | null; status: string; litres_per_day: number | null; size: string | null;
-  technician: string | null; technician_id: number | null; created: string; updated: string; photo: string | null; lat: number | null; lon: number | null;
+  technician: string | null; technician_id: number | null; created: string; updated: string; eta?: string | null; photo: string | null; lat: number | null; lon: number | null;
   verified: boolean; parts: { name: string; qty: number }[]; history: { at: string; status: string; by: string }[]; village_id: number;
   people_per_day: number | null; proof: Proof };
 
@@ -112,6 +112,7 @@ export function RepairDetail() {
   const [qty, setQty] = useState(1);
   const [cost, setCost] = useState("");
   const [msg, setMsg] = useState("");
+  const [eta, setEta] = useState("");
   const tech = me?.role === "technician";
   const can = staff || tech;
   const patch = async (body: object) => setData(await api<Job>(`/api/repairs/${id}`, { method: "PATCH", json: body }));
@@ -131,6 +132,7 @@ export function RepairDetail() {
         {j.people_per_day != null && <div className="kv"><span className="muted">{t("Enough for")}</span><b>{t("{p} people a day", { p: people(j.people_per_day) })}</b></div>}
         <ProofBox proof={j.proof} lang={lang} />
         {j.technician && <div className="kv"><span className="muted">{t("Technician")}</span><b>👷 {j.technician}</b></div>}
+        {j.eta && ["assigned", "fixing"].includes(j.status) && <div className="kv"><span className="muted">{t("Should be finished by")}</span><b>⏱ {new Date(j.eta).toLocaleString(lang === "th" ? "th-TH" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}</b></div>}
         {j.verified && <Chip kind="good">✓ {t("Leak confirmed by technician")}</Chip>}
         {j.photo && <img src={photoUrl(j.photo)} alt="" style={{ borderRadius: 12 }} />}
         {j.lat != null && <a className="btn block" href={`https://www.openstreetmap.org/?mlat=${j.lat}&mlon=${j.lon}#map=18/${j.lat}/${j.lon}`} target="_blank" rel="noreferrer">📍 Map</a>}
@@ -140,6 +142,11 @@ export function RepairDetail() {
         <div className="card stack">
           {tech && !j.technician_id && <button className="btn primary block" onClick={() => patch({ status: "assigned" })}>👷 {t("Assign to me")}</button>}
           {j.status !== "fixing" && <button className="btn block" onClick={() => patch({ status: "fixing" })}>🔧 {t("Start fixing")}</button>}
+          <label htmlFor="eta">{t("When will it be finished?")}</label>
+          <div className="row" style={{ gap: 8 }}>
+            <input id="eta" type="datetime-local" value={eta} onChange={(e) => setEta(e.target.value)} style={{ flex: 1 }} />
+            <button className="btn" disabled={!eta} onClick={() => patch({ eta: new Date(eta).toISOString(), ...(j.status === "open" ? { status: "fixing" } : {}) })}>{t("Save")}</button>
+          </div>
           <label className="row"><input type="checkbox" checked={verified} onChange={(e) => setVerified(e.target.checked)} /> {t("Leak confirmed by technician")}</label>
           <label>{t("Parts used")}</label>
           <select value={depot} onChange={(e) => setDepot(e.target.value ? Number(e.target.value) : "")}>

@@ -2,13 +2,21 @@ import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../auth";
 import { Layout, Loading } from "../components/Layout";
 import { StatusCard, type VillageStatus } from "../components/Status";
+import { VillageChat } from "../components/VillageChat";
+import { VillageMap, type MapJob } from "../components/VillageMap";
 import { useApi } from "../hooks";
+import { useEffect } from "react";
 import { useT } from "../i18n";
 
 export default function Home() {
   const { me, loading, staff, logout } = useAuth();
   const { t } = useT();
-  const { data: s, error } = useApi<VillageStatus>(me?.village_id ? `/api/villages/${me.village_id}/status` : null, [me?.village_id]);
+  const { data: s, error, reload } = useApi<VillageStatus>(me?.village_id ? `/api/villages/${me.village_id}/status` : null, [me?.village_id]);
+  const { data: jobs, reload: reloadJobs } = useApi<MapJob[]>(me?.village_id ? `/api/villages/${me.village_id}/repairs` : null, [me?.village_id]);
+  useEffect(() => {
+    const i = setInterval(() => { reload(); reloadJobs(); }, 30000);
+    return () => clearInterval(i);
+  }, [reload, reloadJobs]);
   if (loading) return <Loading />;
   if (!me) return <Navigate to="/login" replace />;
   if (me.role === "technician")
@@ -47,12 +55,14 @@ export default function Home() {
     <Layout title={s?.name ?? "NamJai"} back={false}>
       {s ? <StatusCard s={s} /> : <Loading error={error} />}
       {s?.simulated && <p className="center"><span className="sim-tag">{t("Simulated data")}</span></p>}
+      {s && jobs && <VillageMap s={s} jobs={jobs} />}
       <Link to="/report" className="btn danger block report-btn">⚠️ {t("Report a problem")}</Link>
       <div className="grid" style={{ marginTop: 12 }}>{tiles.filter((x) => x.main).map(tile)}</div>
       <details className="more" style={{ marginTop: 12 }}>
         <summary className="btn block">➕ {t("More")}</summary>
         <div className="grid" style={{ marginTop: 12 }}>{tiles.filter((x) => !x.main).map(tile)}</div>
       </details>
+      {me.village_id && <VillageChat villageId={me.village_id} />}
       <div className="row between small muted" style={{ marginTop: 20 }}>
         <span>{me.name} · {t(me.role[0].toUpperCase() + me.role.slice(1))} · ⭐ {me.points}</span>
         <button className="btn small" onClick={logout}>{t("Log out")}</button>

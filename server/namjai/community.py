@@ -2,7 +2,7 @@ import hashlib
 import hmac
 import math
 import os
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
@@ -240,7 +240,7 @@ def job_dict(j, people=None):
             "litres_per_day": j.litres_per_day, "people_per_day": to_people(j.litres_per_day), "proof": j.proof or {},
             "size": j.size, "status": j.status,
             "technician": first_name(people.get(j.technician_id)) if j.technician_id else None, "technician_id": j.technician_id,
-            "depot_id": j.depot_id, "parts": j.parts, "verified": j.verified, "created": iso(j.created), "updated": iso(j.updated),
+            "depot_id": j.depot_id, "parts": j.parts, "verified": j.verified, "created": iso(j.created), "updated": iso(j.updated), "eta": iso(j.eta),
             "history": j.history}
 
 
@@ -315,12 +315,16 @@ def check_proofs(db, village, now):
                          people_per_day=S.A.people(stopped, cfg_))
             j.status = "done"
             j.history = [*j.history, {"at": iso(now), "status": "done", "by": "NamJai meter"}]
+            from .chat import system_note
+            system_note(db, j, f"Meter confirms repair #{j.id}: about {stopped} L/day saved")
             if j.verified and j.reported_by:
                 award(db, j.reported_by, j.village_id, "verified_report", f"job:{j.id}", when=now)
         elif bad >= need:
             proof.update(state="not_fixed", checked=iso(now))
             j.status = "fixing"
             j.history = [*j.history, {"at": iso(now), "status": "fixing", "by": "NamJai meter"}]
+            from .chat import system_note
+            system_note(db, j, f"Night flow is still high after repair #{j.id}. The job is open again")
         j.proof = proof
         j.updated = now
     db.commit()
@@ -567,6 +571,7 @@ class RepairPatch(BaseModel):
     verified: bool | None = None
     litres_per_day: float | None = None
     note: str | None = None
+    eta: datetime | None = None
 
 
 @router.patch("/repairs/{jid}")
@@ -579,6 +584,8 @@ def repairs_update(jid: int, body: RepairPatch, p: Person = Depends(need(*STAFF,
         raise HTTPException(422, "unknown status")
     if p.role == "technician" and "technician_id" not in changes and j.technician_id is None:
         changes["technician_id"] = p.id
+    if "eta" in changes:
+        changes["eta"] = changes["eta"].astimezone(UTC).replace(tzinfo=None) if changes["eta"].tzinfo else changes["eta"]
     before = j.status
     for k, val in changes.items():
         setattr(j, k, val)
@@ -596,6 +603,16 @@ def repairs_update(jid: int, body: RepairPatch, p: Person = Depends(need(*STAFF,
         changes["parts_taken"] = True
     j.updated = utcnow()
     j.history = [*j.history, {"at": iso(j.updated), "status": j.status, "by": first_name(p), **({"parts_taken": True} if changes.get("parts_taken") else {})}]
+    if j.status != before or "eta" in changes:
+        from .chat import system_note
+        who = first_name(db.get(Person, j.technician_id)) if j.technician_id else first_name(p)
+        msg = {"assigned": f"{who} took repair #{j.id}", "fixing": f"{who} is fixing repair #{j.id}",
+               "checking": f"Repair #{j.id} finished. NamJai is checking the meter for 2 nights",
+               "done": f"Repair #{j.id} is done", "cancelled": f"Repair #{j.id} was cancelled"}.get(j.status)
+        if "eta" in changes and j.eta and j.status in ("assigned", "fixing"):
+            msg = f"{who}: repair #{j.id} should be finished by {iso(j.eta)}"
+        if msg:
+            system_note(db, j, msg)
     if j.status == "done" and j.verified and j.reported_by:
         award(db, j.reported_by, j.village_id, "verified_report", f"job:{j.id}")
     db.commit()

@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from . import analytics as A
+from . import chat as CH
 from . import community as C
 from . import field as F
 from . import config, db as D
@@ -65,6 +66,7 @@ app = FastAPI(title="NamJai", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(C.router)
 app.include_router(F.router)
+app.include_router(CH.router)
 
 
 def get_db():
