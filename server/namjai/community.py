@@ -572,6 +572,7 @@ class RepairPatch(BaseModel):
     litres_per_day: float | None = None
     note: str | None = None
     eta: datetime | None = None
+    problem: str | None = Field(None, max_length=300)
 
 
 @router.patch("/repairs/{jid}")
@@ -580,6 +581,7 @@ def repairs_update(jid: int, body: RepairPatch, p: Person = Depends(need(*STAFF,
     if p.role != "technician":
         same_village(p, j.village_id)
     changes = body.model_dump(exclude_none=True)
+    problem = (changes.pop("problem", None) or "").strip() or None
     if "status" in changes and changes["status"] not in REPAIR_STATUS:
         raise HTTPException(422, "unknown status")
     if p.role == "technician" and "technician_id" not in changes and j.technician_id is None:
@@ -602,7 +604,8 @@ def repairs_update(jid: int, body: RepairPatch, p: Person = Depends(need(*STAFF,
         depot.log = [*(depot.log or []), {"at": iso(utcnow()), "job": j.id, "parts": j.parts, "by": first_name(p)}]
         changes["parts_taken"] = True
     j.updated = utcnow()
-    j.history = [*j.history, {"at": iso(j.updated), "status": j.status, "by": first_name(p), **({"parts_taken": True} if changes.get("parts_taken") else {})}]
+    j.history = [*j.history, {"at": iso(j.updated), "status": j.status, "by": first_name(p), **({"parts_taken": True} if changes.get("parts_taken") else {}),
+                              **({"problem": problem} if problem else {})}]
     if j.status != before or "eta" in changes:
         from .chat import system_note
         who = first_name(db.get(Person, j.technician_id)) if j.technician_id else first_name(p)
@@ -613,6 +616,9 @@ def repairs_update(jid: int, body: RepairPatch, p: Person = Depends(need(*STAFF,
             msg = f"{who}: repair #{j.id} should be finished by {iso(j.eta)}"
         if msg:
             system_note(db, j, msg)
+    if problem:
+        from .chat import system_note
+        system_note(db, j, f"{first_name(p)} at repair #{j.id}: {problem}")
     if j.status == "done" and j.verified and j.reported_by:
         award(db, j.reported_by, j.village_id, "verified_report", f"job:{j.id}")
     db.commit()

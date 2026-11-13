@@ -288,13 +288,16 @@ class Agency(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     email: str | None = Field(None, max_length=120)
     phone: str | None = Field(None, max_length=30)
+    kind: str | None = Field(None, max_length=20)
+    helps_with: str | None = Field(None, max_length=200)
+    verified: bool | None = None
 
 
 class SettingsIn(BaseModel):
     currency: str | None = Field(None, pattern="^[A-Z]{3}$")
     price_per_m3: float | None = Field(None, ge=0)
     min_charge: float | None = Field(None, ge=0)
-    agencies: list[Agency] | None = Field(None, max_length=10)
+    agencies: list[Agency] | None = Field(None, max_length=20)
     lang: str | None = Field(None, pattern="^(en|th)$")
     new_zones: list[str] | None = Field(None, max_length=20)
 

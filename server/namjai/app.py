@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from . import analytics as A
 from . import chat as CH
+from . import triage as TR
 from . import community as C
 from . import field as F
 from . import config, db as D
@@ -67,6 +68,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 app.include_router(C.router)
 app.include_router(F.router)
 app.include_router(CH.router)
+app.include_router(TR.router)
 
 
 def get_db():

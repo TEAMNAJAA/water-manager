@@ -15,6 +15,7 @@ import Repairs, { RepairDetail } from "./pages/Repairs";
 import Report from "./pages/Report";
 import Sms from "./pages/Sms";
 import Story from "./pages/Story";
+import TriageMap from "./pages/TriageMap";
 import Staff from "./pages/Staff";
 
 export default function App() {
@@ -23,7 +24,8 @@ export default function App() {
       <AuthProvider>
         <BrowserRouter>
           <Routes>
-            <Route path="/" element={<Home />} />
+            <Route path="/" element={<TriageMap />} />
+            <Route path="/me" element={<Home />} />
             <Route path="/login" element={<Login />} />
             <Route path="/read" element={<ReadMeter />} />
             <Route path="/bills" element={<Bills />} />
@@ -40,7 +42,7 @@ export default function App() {
             <Route path="/sms" element={<Sms />} />
             <Route path="/report/:id" element={<EvidenceReport />} />
             <Route path="/story/:id" element={<Story />} />
-            <Route path="*" element={<Home />} />
+            <Route path="*" element={<TriageMap />} />
           </Routes>
         </BrowserRouter>
       </AuthProvider>
