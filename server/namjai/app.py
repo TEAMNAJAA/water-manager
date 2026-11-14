@@ -480,7 +480,7 @@ def admin_evaluate(db=Depends(get_db)):
     return {"ok": True}
 
 
-WEB_DIST = Path(os.getenv("WEB_DIST", Path(__file__).resolve().parents[2] / "web" / "dist"))
+WEB_DIST = Path(os.getenv("WEB_DIST", Path(__file__).resolve().parents[2] / "web"))
 
 if WEB_DIST.is_dir():
     @app.get("/{path:path}", include_in_schema=False)

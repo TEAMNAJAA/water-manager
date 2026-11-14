@@ -3,6 +3,5 @@
 **/*.egg-info
 .venv
 .run
-web/dist
 **/*.db
 hardware/stl

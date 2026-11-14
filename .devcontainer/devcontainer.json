@@ -6,9 +6,8 @@
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",
   "postStartCommand": "bash .devcontainer/start.sh",
-  "forwardPorts": [5173, 8000],
+  "forwardPorts": [8000],
   "portsAttributes": {
-    "5173": { "label": "NamJai app", "onAutoForward": "openBrowser" },
-    "8000": { "label": "NamJai API", "onAutoForward": "silent" }
+    "8000": { "label": "NamJai", "onAutoForward": "openBrowser" }
   }
 }

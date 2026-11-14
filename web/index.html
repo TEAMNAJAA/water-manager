@@ -1,16 +1,1599 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#1c5cab" />
-    <meta name="description" content="NamJai – community water system: meter reading, leak alerts, repairs and a transparent repair fund." />
-    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
-    <title>NamJai</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NamJai 3D — แพลตฟอร์มประปาชุมชนงบฮาร์ดแวร์ $0 & แผนที่ 3 มิติ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    :root {
+      --bg-top:#c5e6f3; --bg-mid:#dff2f4; --bg-bot:#e8f5e9;
+      --surface:rgba(255,255,255,0.91); --solid:#ffffff; --soft:#f4f8fb; --muted-bg:#edf2f7;
+      --border:rgba(196,212,226,0.86); --border-st:#cbd5e1;
+      --ink:#122232; --ink-soft:#33475b; --muted:#5a6e82;
+      --brand:#0284c7; --brand-dk:#0369a1; --brand-soft:#e0f2fe; --brand-glow:rgba(2,132,199,0.22);
+      --crit:#e11d48; --crit-soft:#ffe4e6; --crit-bd:#fda4af;
+      --warn:#d97706; --warn-soft:#fef3c7; --warn-bd:#fcd34d;
+      --good:#059669; --good-soft:#d1fae5; --good-bd:#6ee7b7;
+      --shadow:0 12px 32px rgba(15,35,58,0.12),0 2px 6px rgba(15,35,58,0.05);
+      --font:"Plus Jakarta Sans","Noto Sans Thai",-apple-system,BlinkMacSystemFont,sans-serif;
+    }
+    body.is-night {
+      --bg-top:#0d1b2e; --bg-mid:#152942; --bg-bot:#1d3954;
+      --surface:rgba(17,30,48,0.91); --solid:#16263d; --soft:#1e324e; --muted-bg:#243b5b;
+      --border:rgba(71,98,130,0.58); --border-st:#3b5575;
+      --ink:#f1f5f9; --ink-soft:#cbd5e1; --muted:#94a3b8;
+      --brand:#38bdf8; --brand-dk:#0ea5e9; --brand-soft:rgba(56,189,248,0.16); --brand-glow:rgba(56,189,248,0.28);
+      --shadow:0 16px 40px rgba(3,10,22,0.5);
+    }
+    * { box-sizing:border-box; }
+    html,body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; font-family:var(--font); color:var(--ink); background:linear-gradient(180deg,var(--bg-top) 0%,var(--bg-mid) 56%,var(--bg-bot) 100%); transition:background .45s ease,color .25s ease; -webkit-font-smoothing:antialiased; user-select:none; }
+    #app-shell { position:relative; width:100vw; height:100vh; overflow:hidden; }
+    #map-canvas-wrap { position:absolute; inset:0; cursor:grab; z-index:1; }
+    #map-canvas-wrap:active { cursor:grabbing; }
+    #map-canvas-wrap canvas { display:block; width:100%; height:100%; }
+    #fallback-map { display:none; position:absolute; inset:0; align-items:center; justify-content:center; z-index:1; }
+
+    /* Projected 3D Pins */
+    #pins-layer { position:absolute; inset:0; pointer-events:none; overflow:hidden; z-index:5; }
+    .village-pin { position:absolute; left:0; top:0; transform:translate(-50%,-100%); pointer-events:auto; cursor:pointer; display:flex; flex-direction:column; align-items:center; transition:opacity .2s ease; will-change:transform; }
+    .village-pin:hover .pin-card { transform:translateY(-4px) scale(1.04); }
+    .village-pin.is-selected .pin-card { transform:translateY(-6px) scale(1.07); box-shadow:0 0 0 3px var(--brand),0 8px 22px rgba(15,35,58,.22); }
+    .village-pin.is-dimmed { opacity:.32 !important; }
+    .village-pin.is-dimmed:hover { opacity:.95 !important; }
+    .pin-card { display:flex; align-items:center; gap:7px; background:var(--solid); border:2px solid var(--border); border-radius:999px; padding:4px 12px 4px 5px; box-shadow:0 8px 20px rgba(15,35,58,.18); transition:transform .2s ease; white-space:nowrap; }
+    .village-pin[data-status="critical"] .pin-card { border-color:var(--crit); animation:pulseCrit 2.2s infinite ease-in-out; }
+    .village-pin[data-status="warning"] .pin-card { border-color:var(--warn); }
+    .village-pin[data-status="good"] .pin-card { border-color:var(--good); }
+    .village-pin[data-repairing="true"] .pin-card { border-color:#0284c7; animation:none; box-shadow:0 6px 20px rgba(2,132,199,.34),0 0 0 4px rgba(56,189,248,.25); }
+    @keyframes pulseCrit { 0%,100%{box-shadow:0 6px 18px rgba(225,29,72,.24),0 0 0 0 rgba(225,29,72,.4);} 50%{box-shadow:0 6px 22px rgba(225,29,72,.32),0 0 0 9px rgba(225,29,72,0);} }
+    .pin-rank { display:inline-flex; align-items:center; justify-content:center; min-width:24px; height:24px; padding:0 6px; border-radius:999px; font-size:11px; font-weight:800; color:#fff; }
+    .village-pin[data-status="critical"] .pin-rank { background:linear-gradient(135deg,#f43f5e,#be123c); }
+    .village-pin[data-status="warning"] .pin-rank { background:linear-gradient(135deg,#f59e0b,#b45309); }
+    .village-pin[data-status="good"] .pin-rank { background:linear-gradient(135deg,#10b981,#047857); }
+    .village-pin[data-repairing="true"] .pin-rank { background:linear-gradient(135deg,#0284c7,#0369a1); }
+    .pin-text { display:flex; flex-direction:column; line-height:1.15; }
+    .pin-name { font-size:12.4px; font-weight:700; color:var(--ink); }
+    .pin-sub { font-size:10.4px; font-weight:700; }
+    .village-pin[data-status="critical"] .pin-sub { color:#f43f5e; }
+    .village-pin[data-status="warning"] .pin-sub { color:#f59e0b; }
+    .village-pin[data-status="good"] .pin-sub { color:#10b981; }
+    .village-pin[data-repairing="true"] .pin-sub { color:var(--brand); }
+    .pin-stem { width:2.5px; height:11px; background:var(--ink); opacity:.5; margin-top:-1px; }
+
+    /* Non-Overlapping Flexbox HUD Shell */
+    #hud-shell { position:absolute; inset:0; z-index:15; display:flex; flex-direction:column; padding:11px 13px; gap:9px; pointer-events:none; }
+    .hud-box { pointer-events:auto; background:var(--surface); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border:1px solid var(--border); border-radius:20px; box-shadow:var(--shadow); }
+    .top-hud { flex-shrink:0; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+    .brand-bar { display:flex; align-items:center; gap:9px; padding:6px 13px 6px 8px; }
+    .brand-icon { width:33px; height:33px; border-radius:10px; background:linear-gradient(135deg,#0ea5e9,#0369a1); color:#fff; display:flex; align-items:center; justify-content:center; font-size:17px; flex-shrink:0; }
+    .brand-title-row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+    .brand-title { margin:0; font-size:14.2px; font-weight:800; }
+    .sim-badge,.custom-badge,.saved-pill,.points-pill,.zero-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px; font-size:10.3px; font-weight:800; }
+    .sim-badge { background:#fef3c7; border:1px solid #fcd34d; color:#92400e; }
+    .zero-badge { background:#dcfce7; border:1px solid #86efac; color:#166534; }
+    .custom-badge { background:var(--brand-soft); border:1px solid #7dd3fc; color:var(--brand); }
+    .saved-pill { display:none; background:var(--good-soft); border:1px solid var(--good-bd); color:#047857; }
+    .saved-pill.is-visible { display:inline-flex; }
+    .points-pill { background:#fef3c7; border:1px solid #fcd34d; color:#92400e; }
+
+    .top-actions { display:flex; align-items:center; gap:5px; padding:5px 7px; flex-wrap:wrap; }
+    .hud-btn { font:inherit; font-size:11.5px; font-weight:700; padding:6.5px 9.5px; border-radius:10px; border:1px solid var(--border); background:var(--solid); color:var(--ink); cursor:pointer; display:inline-flex; align-items:center; gap:4px; text-decoration:none; white-space:nowrap; transition:all .14s ease; }
+    .hud-btn:hover { background:var(--soft); border-color:var(--border-st); transform:translateY(-1px); }
+    .hud-btn-primary { background:linear-gradient(135deg,#0284c7,#0369a1); border-color:transparent; color:#fff; }
+    .hud-btn-urgent { background:linear-gradient(135deg,#e11d48,#be123c); border-color:transparent; color:#fff; }
+    .hud-btn-gold { background:linear-gradient(135deg,#f59e0b,#d97706); border-color:transparent; color:#fff; }
+    .hud-btn-green { background:linear-gradient(135deg,#059669,#047857); border-color:transparent; color:#fff; }
+    .hud-btn-night.is-active { background:linear-gradient(135deg,#312e81,#1e1b4b); border-color:#6366f1; color:#e0e7ff; }
+    .hud-btn-offline.is-offline { background:#fffbeb; border-color:#f59e0b; color:#b45309; }
+    .hud-btn-reset.is-confirming { background:#ffe4e6; border-color:#f43f5e; color:#be123c; }
+
+    .workspace-row { flex:1; min-height:0; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; position:relative; }
+    .left-panel { width:290px; max-height:100%; display:flex; flex-direction:column; overflow:hidden; flex-shrink:0; }
+    .left-panel.is-collapsed { display:none; }
+    .reopen-queue-btn { pointer-events:auto; display:none; }
+    .reopen-queue-btn.is-visible { display:inline-flex; }
+    .right-panel { width:384px; max-height:100%; display:flex; flex-direction:column; overflow:hidden; flex-shrink:0; user-select:text; margin-left:auto; }
+    .right-panel.is-hidden { display:none; }
+
+    .center-banners { position:absolute; top:0; left:50%; transform:translateX(-50%); z-index:25; display:flex; flex-direction:column; align-items:center; gap:7px; pointer-events:none; max-width:480px; width:calc(100% - 24px); }
+    .night-scan-toast { padding:5px 13px; border-radius:999px; background:rgba(15,23,42,.9); border:1px solid rgba(56,189,248,.5); color:#e0f2fe; font-size:11.3px; font-weight:700; display:none; align-items:center; gap:7px; }
+    body.is-night .night-scan-toast { display:inline-flex; }
+    .scan-dot { width:8px; height:8px; border-radius:50%; background:#38bdf8; box-shadow:0 0 8px #38bdf8; animation:blink 1.4s infinite; }
+    @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:.3;} }
+    .repair-alert-banner { width:100%; padding:10px 14px; border-radius:14px; background:linear-gradient(135deg,#059669,#047857); color:#fff; box-shadow:0 12px 30px rgba(4,120,87,.38); display:none; align-items:flex-start; justify-content:space-between; gap:10px; pointer-events:auto; }
+    .repair-alert-banner.is-open { display:flex; }
+    .judge-tour-card { width:100%; padding:11px 13px; border-radius:15px; background:var(--surface); backdrop-filter:blur(16px); border:1.5px solid #f59e0b; box-shadow:var(--shadow); display:none; flex-direction:column; gap:7px; pointer-events:auto; }
+    .judge-tour-card.is-open { display:flex; }
+    .jt-steps { display:grid; grid-template-columns:repeat(4,1fr); gap:4px; }
+    .jt-step-btn { font:inherit; font-size:10.5px; font-weight:800; padding:5.5px 4px; border-radius:7px; border:1px solid var(--border); background:var(--solid); color:var(--muted); cursor:pointer; }
+    .jt-step-btn.is-active { background:linear-gradient(135deg,#f59e0b,#d97706); border-color:transparent; color:#fff; }
+
+    /* Left Queue */
+    .panel-header { padding:11px 12px 9px; border-bottom:1px solid var(--border); }
+    .panel-head-top { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:7px; }
+    .panel-title { margin:0; font-size:13.5px; font-weight:800; }
+    .filter-pills { display:flex; gap:4px; flex-wrap:wrap; }
+    .filter-pill { font:inherit; font-size:10.8px; font-weight:700; padding:4px 8px; border-radius:999px; border:1px solid var(--border); background:var(--solid); color:var(--muted); cursor:pointer; display:inline-flex; align-items:center; gap:4px; }
+    .filter-pill.is-active { background:var(--brand); border-color:var(--brand); color:#fff; }
+    body.is-night .filter-pill.is-active { color:#0b1727; }
+    .dot { width:7px; height:7px; border-radius:50%; display:inline-block; }
+    .dot-crit{background:var(--crit);} .dot-warn{background:var(--warn);} .dot-good{background:var(--good);}
+    .village-list { padding:8px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; }
+    .village-card-btn { font:inherit; text-align:left; width:100%; padding:9px 10px; border-radius:12px; border:1.5px solid var(--border); background:var(--solid); color:var(--ink); cursor:pointer; display:flex; align-items:flex-start; gap:9px; transition:all .14s ease; }
+    .village-card-btn:hover { border-color:var(--border-st); transform:translateX(2px); }
+    .village-card-btn.is-selected { border-color:var(--brand); background:var(--brand-soft); }
+    .vcard-rank { min-width:27px; height:27px; border-radius:8px; font-size:11px; font-weight:800; color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .vcard-rank.critical{background:linear-gradient(135deg,#f43f5e,#be123c);} .vcard-rank.warning{background:linear-gradient(135deg,#f59e0b,#b45309);} .vcard-rank.good{background:linear-gradient(135deg,#10b981,#047857);}
+    .vcard-body { flex:1; min-width:0; }
+    .vcard-top { display:flex; align-items:center; justify-content:space-between; gap:5px; }
+    .vcard-name { font-size:12.8px; font-weight:700; }
+    .vcard-tag { font-size:10px; font-weight:700; padding:1.5px 6px; border-radius:999px; flex-shrink:0; }
+    .vcard-tag.critical{background:var(--crit-soft);color:#be123c;} .vcard-tag.warning{background:var(--warn-soft);color:#b45309;} .vcard-tag.good{background:var(--good-soft);color:#047857;}
+    .vcard-issue { margin:3px 0 5px; font-size:11.3px; color:var(--muted); line-height:1.34; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .vcard-meta { display:flex; gap:9px; font-size:10.5px; font-weight:600; color:var(--ink-soft); }
+
+    /* Right Inspector */
+    .detail-head { padding:12px 14px 8px; display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+    .detail-badge-row { display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-bottom:4px; }
+    .priority-banner { display:inline-flex; padding:2px 8px; border-radius:999px; font-size:10.5px; font-weight:800; color:#fff; }
+    .priority-banner.critical{background:linear-gradient(135deg,#f43f5e,#be123c);} .priority-banner.warning{background:linear-gradient(135deg,#f59e0b,#b45309);} .priority-banner.good{background:linear-gradient(135deg,#10b981,#047857);}
+    .detail-title { margin:0; font-size:17px; font-weight:800; line-height:1.22; }
+    .detail-summary { margin:2px 0 0; font-size:11.5px; color:var(--muted); line-height:1.38; }
+    .close-btn { font:inherit; width:28px; height:28px; border-radius:8px; border:1px solid var(--border); background:var(--solid); color:var(--muted); font-size:13px; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .inspector-tabs { display:grid; grid-template-columns:repeat(4,1fr); gap:4px; padding:3.5px; margin:0 13px 6px; background:var(--muted-bg); border-radius:10px; border:1px solid var(--border); }
+    .insp-tab { font:inherit; font-size:11.2px; font-weight:700; padding:6px 4px; border-radius:7px; border:none; background:transparent; color:var(--muted); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:3px; white-space:nowrap; }
+    .insp-tab.is-active { background:var(--solid); color:var(--ink); box-shadow:0 1px 4px rgba(15,35,58,.1); }
+    .tab-dot { display:inline-flex; align-items:center; justify-content:center; min-width:15px; height:15px; padding:0 4px; border-radius:999px; font-size:9.5px; font-weight:800; background:var(--brand-soft); color:var(--brand); }
+    .inspector-scroll { padding:5px 13px 12px; overflow-y:auto; display:flex; flex-direction:column; gap:9px; flex:1; }
+    .quick-metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+    .metric-tile { background:var(--soft); border:1px solid var(--border); border-radius:10px; padding:7px 8px; }
+    .metric-label { font-size:10px; color:var(--muted); font-weight:600; }
+    .metric-val { margin-top:2px; font-size:12.5px; font-weight:800; }
+    .metric-val.is-crit{color:#f43f5e;} .metric-val.is-warn{color:#f59e0b;} .metric-val.is-good{color:#10b981;}
+    .zone-chips { display:grid; grid-template-columns:repeat(2,1fr); gap:5px; }
+    .zone-chip { font:inherit; font-size:11px; font-weight:700; padding:5.5px 8px; border-radius:8px; border:1px solid var(--border); background:var(--solid); color:var(--ink); cursor:pointer; text-align:left; }
+    .zone-chip.is-active { background:var(--brand); border-color:var(--brand); color:#fff; }
+    body.is-night .zone-chip.is-active { color:#0b1727; }
+
+    .sub-pill-bar { display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:3px; background:var(--muted-bg); border:1px solid var(--border); border-radius:9px; }
+    .sub-pill-btn { font:inherit; font-size:11px; font-weight:700; padding:5.5px 6px; border:none; border-radius:6.5px; background:transparent; color:var(--muted); cursor:pointer; }
+    .sub-pill-btn.is-active { background:var(--solid); color:var(--ink); box-shadow:0 1px 4px rgba(15,35,58,.1); }
+
+    .ocr-cam-card { background:#0f172a; border:1.5px solid #334155; border-radius:12px; padding:9px 11px; color:#e2e8f0; display:flex; flex-direction:column; gap:6px; }
+    .ocr-cam-head { display:flex; justify-content:space-between; font-size:10.8px; font-weight:700; color:#94a3b8; }
+    .ocr-meter-drum { display:flex; align-items:center; justify-content:center; gap:3.5px; padding:8px; border-radius:8px; background:#1e293b; border:1px solid #475569; position:relative; }
+    .ocr-meter-drum.is-foggy::after { content:""; position:absolute; inset:0; background:radial-gradient(circle,rgba(255,255,255,.42),rgba(226,232,240,.18)); backdrop-filter:blur(1.2px); border-radius:7px; pointer-events:none; }
+    .ocr-digit { width:23px; height:30px; border-radius:4px; background:#090d16; border:1.5px solid #22c55e; color:#f8fafc; font-family:monospace; font-size:15px; font-weight:800; display:flex; align-items:center; justify-content:center; }
+    .ocr-digit.frac { border-color:#38bdf8; color:#7dd3fc; }
+
+    .status-block { border-radius:11px; padding:9px 11px; border:1.5px solid transparent; }
+    .status-block.broke { background:#fff5f6; border-color:var(--crit-bd); color:#1f2937; }
+    .status-block.fix { background:#fffbeb; border-color:var(--warn-bd); color:#1f2937; }
+    .status-block.good { background:#ecfdf5; border-color:var(--good-bd); color:#1f2937; }
+    body.is-night .status-block { color:#f8fafc; }
+    body.is-night .status-block.broke { background:rgba(225,29,72,.14); border-color:rgba(251,113,133,.4); }
+    body.is-night .status-block.fix { background:rgba(217,119,6,.14); border-color:rgba(251,191,36,.4); }
+    body.is-night .status-block.good { background:rgba(5,150,105,.14); border-color:rgba(52,211,153,.4); }
+    .status-block-title { margin:0 0 4px; font-size:12.4px; font-weight:800; }
+    .status-block.broke .status-block-title{color:#e11d48;} .status-block.fix .status-block-title{color:#d97706;} .status-block.good .status-block-title{color:#059669;}
+    body.is-night .status-block.broke .status-block-title{color:#fda4af;} body.is-night .status-block.fix .status-block-title{color:#fcd34d;} body.is-night .status-block.good .status-block-title{color:#6ee7b7;}
+    .status-list { margin:0; padding-left:16px; display:flex; flex-direction:column; gap:4px; font-size:12px; line-height:1.42; }
+
+    .box-card { background:var(--soft); border:1px solid var(--border); border-radius:12px; padding:11px 12px; display:flex; flex-direction:column; gap:7px; }
+    .subsec-head { display:flex; justify-content:space-between; align-items:center; gap:6px; }
+    .subsec-title { margin:0; font-size:12.5px; font-weight:800; }
+    .fund-track { width:100%; height:8px; background:var(--muted-bg); border-radius:999px; overflow:hidden; }
+    .fund-fill { height:100%; border-radius:999px; transition:width .35s ease; }
+    .help-note { font-size:11.5px; color:var(--muted); line-height:1.42; }
+    .mini-link-btn { font:inherit; font-size:11px; font-weight:700; padding:4px 8px; border-radius:7px; border:1px solid var(--border); background:var(--solid); color:var(--brand); cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:4px; }
+    .mini-link-btn:hover { background:var(--brand-soft); border-color:var(--brand); }
+    .del-mini-btn { font:inherit; font-size:11px; padding:2px 5px; border-radius:5px; border:none; background:transparent; color:var(--muted); cursor:pointer; }
+    .del-mini-btn:hover { background:var(--crit-soft); color:#be123c; }
+    .empty-inline { padding:12px 10px; border-radius:9px; background:var(--solid); border:1px dashed var(--border-st); text-align:center; font-size:11.5px; color:var(--muted); }
+
+    .repair-active-card { background:var(--brand-soft); border:1.5px solid var(--brand); border-radius:10px; padding:9px 11px; display:flex; flex-direction:column; gap:5px; }
+    .repair-done-card { background:var(--good-soft); border:1.5px solid var(--good-bd); color:#064e3b; border-radius:10px; padding:9px 11px; display:flex; flex-direction:column; gap:4px; }
+    .obstacle-note { background:var(--solid); border-left:3.5px solid #f59e0b; border-radius:6px; padding:6px 9px; font-size:11.5px; color:var(--ink); }
+    .wq-guard { background:rgba(14,165,233,.1); border:1px solid rgba(14,165,233,.36); border-radius:9px; padding:8px 10px; display:flex; flex-direction:column; gap:5px; font-size:11.3px; }
+    .valve-row,.ledger-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6.5px 9px; border-radius:8px; background:var(--solid); border:1px solid var(--border); font-size:11.5px; }
+    .valve-btn { font:inherit; font-size:10.8px; font-weight:800; padding:4px 9px; border-radius:999px; border:none; cursor:pointer; color:#fff; }
+    .valve-btn.is-open{background:#0284c7;} .valve-btn.is-shut{background:#64748b;}
+
+    .chat-row { display:flex; align-items:flex-start; gap:8px; }
+    .chat-avatar { width:29px; height:29px; border-radius:8px; font-size:11.5px; font-weight:800; color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; background:linear-gradient(135deg,#0ea5e9,#0284c7); }
+    .chat-avatar.role-tech{background:linear-gradient(135deg,#f59e0b,#d97706);} .chat-avatar.role-caretaker{background:linear-gradient(135deg,#10b981,#059669);} .chat-avatar.role-agency{background:linear-gradient(135deg,#f43f5e,#be123c);}
+    .chat-bubble { flex:1; min-width:0; padding:7px 10px; border-radius:4px 11px 11px 11px; background:var(--solid); border:1px solid var(--border); font-size:11.8px; }
+    .form-row-2 { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+    .field-group { display:flex; flex-direction:column; gap:3.5px; }
+    .field-label { font-size:10.8px; font-weight:700; color:var(--ink); }
+    .text-input,.select-input,.textarea-input { font:inherit; font-size:11.8px; color:var(--ink); background:var(--solid); border:1px solid var(--border-st); border-radius:8px; padding:6.5px 9px; width:100%; }
+    .textarea-input { resize:vertical; min-height:52px; }
+    .form-error { display:none; font-size:11px; font-weight:600; color:#f43f5e; }
+    .form-error.is-visible { display:block; }
+    .inspector-footer { padding:7px 13px; border-top:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; background:var(--soft); }
+
+    .bottom-dock { position:absolute; bottom:11px; left:50%; transform:translateX(-50%); z-index:14; display:flex; gap:5px; padding:5px 8px; }
+    .icon-ctrl-btn { font:inherit; width:31px; height:31px; border-radius:8px; border:1px solid var(--border); background:var(--solid); color:var(--ink); font-size:13.5px; font-weight:800; cursor:pointer; }
+
+    /* Modals */
+    .modal-backdrop { position:fixed; inset:0; z-index:50; background:rgba(9,20,36,.52); backdrop-filter:blur(5px); display:none; align-items:center; justify-content:center; padding:14px; user-select:text; }
+    .modal-backdrop.is-open { display:flex; }
+    .modal-dialog { width:100%; max-width:560px; max-height:calc(100vh - 30px); background:var(--solid); border:1px solid var(--border); border-radius:20px; box-shadow:0 24px 54px rgba(8,20,38,.34); display:flex; flex-direction:column; overflow:hidden; }
+    .modal-header { padding:13px 17px 10px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+    .modal-title { margin:0; font-size:15.8px; font-weight:800; }
+    .modal-subtitle { margin:2px 0 0; font-size:11.5px; color:var(--muted); }
+    .modal-body { padding:14px 17px; overflow-y:auto; display:flex; flex-direction:column; gap:10px; }
+    .modal-footer { padding:10px 17px; border-top:1px solid var(--border); background:var(--soft); display:flex; justify-content:flex-end; gap:8px; }
+
+    .impact-grid-4 { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
+    .impact-kpi { background:var(--soft); border:1px solid var(--border); border-radius:11px; padding:9px 11px; display:flex; flex-direction:column; gap:2px; }
+    .impact-kpi-val { font-size:16px; font-weight:800; color:var(--brand); }
+    .impact-kpi-lbl { font-size:10.8px; font-weight:700; color:var(--ink-soft); }
+    .comp-table { width:100%; border-collapse:collapse; font-size:11.3px; }
+    .comp-table th,.comp-table td { padding:6.5px 8px; border-bottom:1px solid var(--border); text-align:left; }
+    .comp-table th { background:var(--muted-bg); font-weight:800; }
+    .cite-card { background:var(--soft); border:1px solid var(--border); border-left:4px solid var(--brand); border-radius:10px; padding:9px 12px; display:flex; flex-direction:column; gap:4px; }
+    .hw-stage { background:linear-gradient(180deg,#0f172a,#1e293b); border-radius:13px; padding:12px; color:#f8fafc; display:flex; flex-direction:column; gap:8px; }
+    .hw-iso-svg g.iso-layer { transition:transform .38s ease,filter .2s ease; cursor:pointer; }
+    .hw-iso-svg g.iso-layer.is-active { filter:drop-shadow(0 0 7px rgba(56,189,248,.85)); }
+    .photo-preview-box { position:relative; background:#0f172a; border:1.5px dashed #38bdf8; border-radius:12px; min-height:132px; display:flex; flex-direction:column; align-items:center; justify-content:center; overflow:hidden; padding:10px; color:#bae6fd; text-align:center; }
+    .photo-preview-box img { max-width:100%; max-height:150px; border-radius:8px; object-fit:contain; }
+    .ocr-scan-badge { position:absolute; bottom:8px; right:8px; background:rgba(5,150,105,.92); color:#fff; font-size:10.5px; font-weight:800; padding:3px 8px; border-radius:999px; }
+
+    .keypad-phone { background:#1e293b; border:4px solid #334155; border-radius:22px; padding:12px; color:#f8fafc; display:flex; flex-direction:column; gap:8px; max-width:350px; margin:0 auto; width:100%; }
+    .lcd-screen { background:#d9f0df; color:#0f291e; border:3px solid #475569; border-radius:10px; padding:8px; height:185px; overflow-y:auto; font-size:11.5px; display:flex; flex-direction:column; gap:6px; }
+    .sms-msg { padding:5.5px 8px; border-radius:7px; line-height:1.35; font-weight:600; }
+    .sms-msg.in{background:#fff;border-left:3px solid #0284c7;align-self:flex-start;} .sms-msg.out{background:#bbf7d0;align-self:flex-end;}
+    .kp-btn { font:inherit; font-size:10.8px; font-weight:700; padding:6px; border-radius:7px; border:1px solid #475569; background:#334155; color:#f1f5f9; cursor:pointer; }
+
+    @media (max-width:960px) {
+      .workspace-row { flex-direction:column; justify-content:flex-end; }
+      .left-panel { width:100%; max-height:162px; order:2; }
+      .village-list { flex-direction:row; overflow-x:auto; overflow-y:hidden; }
+      .village-card-btn { min-width:234px; flex-shrink:0; }
+      .right-panel { width:100%; max-height:52vh; order:1; }
+      .bottom-dock { display:none; }
+    }
+  </style>
+<style data-link-removed-style>a[data-link-removed],a[href*="zPythonSafez"]:not([onclick]){pointer-events:none!important;cursor:default!important;opacity:.6}</style></head>
+<body>
+  <div id="app-shell">
+    <div id="map-canvas-wrap" aria-label="3D Village Water Map"></div>
+    <div id="fallback-map">
+      <svg viewBox="0 0 1000 620" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">
+        <ellipse cx="500" cy="340" rx="430" ry="220" fill="#95d5b2" stroke="#52b788" stroke-width="10"/>
+        <path d="M 180 230 Q 420 310 520 350 T 850 430" fill="none" stroke="#38bdf8" stroke-width="26" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div id="pins-layer"></div>
+
+    <div id="hud-shell">
+      <header class="top-hud">
+        <div class="hud-box brand-bar">
+          <div class="brand-icon" aria-hidden="true">💧</div>
+          <div class="brand-title-row">
+            <h1 class="brand-title" id="ui-app-title">NamJai 3D</h1>
+            <span class="zero-badge" id="ui-zero-badge">📱 $0 Day-1 Ready</span>
+            <span class="sim-badge" id="ui-sim-badge">🧪 Simulated Demo</span>
+            <span class="saved-pill" id="ui-water-saved"></span>
+            <span class="points-pill" id="ui-hero-points">⭐ 0 แต้มน้ำใจ</span>
+          </div>
+        </div>
+
+        <div class="hud-box top-actions">
+          <button type="button" class="hud-btn hud-btn-gold" id="btn-judge-tour">🏆 <span id="ui-btn-tour">โหมดกรรมการ</span></button>
+          <button type="button" class="hud-btn hud-btn-green" id="btn-open-hw">📸 <span id="ui-btn-hw">ถ่ายมิเตอร์ $0</span></button>
+          <button type="button" class="hud-btn hud-btn-urgent" id="btn-help-first">🚨 <span id="ui-btn-urgent">ช่วยด่วน (#1)</span></button>
+          <button type="button" class="hud-btn hud-btn-night" id="btn-night-mode">🌙 <span id="ui-btn-night">ส่องรั่วตี 2</span></button>
+          <button type="button" class="hud-btn" id="btn-open-impact">📚 <span id="ui-btn-impact">หลักฐานอ้างอิง</span></button>
+          <button type="button" class="hud-btn" id="btn-open-sms">📱 <span id="ui-btn-sms">SMS/LINE</span> <span class="tab-dot" id="sms-unread-dot" style="display:none;">0</span></button>
+          <button type="button" class="hud-btn hud-btn-offline" id="btn-offline-mode">📡 <span id="ui-btn-offline">ออนไลน์</span> <span class="tab-dot" id="offline-queue-dot" style="display:none;">0</span></button>
+          <button type="button" class="hud-btn hud-btn-reset" id="btn-reset-demo">🔄 <span id="ui-btn-reset">รีเซ็ต</span></button>
+          <button type="button" class="hud-btn" id="btn-lang">🌐 <span id="ui-lang-label">EN</span></button>
+          <a class="hud-btn" href="https://github.com/TEAMNAJAA/water-manager" target="_blank" rel="noopener">GitHub ↗</a>
+        </div>
+      </header>
+
+      <div class="workspace-row">
+        <div class="center-banners">
+          <div class="judge-tour-card" id="judge-tour-card">
+            <div class="subsec-head">
+              <span style="font-size:12.2px;font-weight:800;" id="jt-head-title">🏆 สาธิตกรรมการ 4 ขั้นตอน (Zero-Hardware Day-1)</span>
+              <button type="button" class="close-btn" id="btn-close-jt" style="width:23px;height:23px;font-size:11px;">✕</button>
+            </div>
+            <div class="jt-steps">
+              <button type="button" class="jt-step-btn is-active" data-jstep="1" id="jt-s1">1. SEE</button>
+              <button type="button" class="jt-step-btn" data-jstep="2" id="jt-s2">2. LOCATE</button>
+              <button type="button" class="jt-step-btn" data-jstep="3" id="jt-s3">3. FIX</button>
+              <button type="button" class="jt-step-btn" data-jstep="4" id="jt-s4">4. PROVE</button>
+            </div>
+            <div style="font-size:11.5px;color:var(--ink-soft);line-height:1.4;" id="jt-desc"></div>
+            <div class="subsec-head">
+              <button type="button" class="mini-link-btn" id="btn-jt-action"></button>
+              <button type="button" class="hud-btn hud-btn-primary" id="btn-jt-next" style="padding:5px 10px;">ถัดไป →</button>
+            </div>
+          </div>
+
+          <div class="night-scan-toast" id="ui-night-banner">
+            <span class="scan-dot"></span>
+            <span id="ui-night-banner-text">02:00 AM Minimum Night Flow • ตรวจจับน้ำรั่วช่วงชาวบ้านปิดก๊อกนอน</span>
+          </div>
+
+          <div class="repair-alert-banner" id="repair-alert-banner" role="status">
+            <div>
+              <div style="font-size:12.8px;font-weight:800;" id="repair-alert-title">🔔 ซ่อมประปาเสร็จสิ้น!</div>
+              <div style="font-size:11.4px;opacity:.95;" id="repair-alert-desc"></div>
+            </div>
+            <button type="button" class="close-btn" id="btn-close-repair-alert" style="background:rgba(255,255,255,.2);border:none;color:#fff;">✕</button>
+          </div>
+        </div>
+
+        <button type="button" class="hud-btn reopen-queue-btn" id="btn-reopen-queue">📋 <span id="ui-btn-reopen-queue">คิวหมู่บ้าน</span></button>
+
+        <aside class="hud-box left-panel" id="left-queue-panel">
+          <div class="panel-header">
+            <div class="panel-head-top">
+              <h2 class="panel-title" id="ui-queue-title">ลำดับความช่วยเหลือ</h2>
+              <div style="display:flex;gap:4px;">
+                <button type="button" class="mini-link-btn" id="btn-open-add-village">➕ <span id="ui-btn-add-village">เพิ่มหมู่บ้าน</span></button>
+                <button type="button" class="close-btn" id="btn-collapse-queue" style="width:25px;height:25px;font-size:10px;">◀</button>
+              </div>
+            </div>
+            <div class="filter-pills">
+              <button type="button" class="filter-pill is-active" data-filter="all" id="flt-all">ทั้งหมด</button>
+              <button type="button" class="filter-pill" data-filter="critical" id="flt-crit"><span class="dot dot-crit"></span>วิกฤต</button>
+              <button type="button" class="filter-pill" data-filter="warning" id="flt-warn"><span class="dot dot-warn"></span>เฝ้าระวัง</button>
+              <button type="button" class="filter-pill" data-filter="good" id="flt-good"><span class="dot dot-good"></span>ปกติ</button>
+            </div>
+          </div>
+          <div class="village-list" id="village-list"></div>
+        </aside>
+
+        <section class="hud-box right-panel is-hidden" id="inspector-panel" aria-live="polite"></section>
+      </div>
+    </div>
+
+    <div class="hud-box bottom-dock">
+      <button type="button" class="icon-ctrl-btn" id="btn-rot-left">↺</button>
+      <button type="button" class="icon-ctrl-btn" id="btn-zoom-in">＋</button>
+      <button type="button" class="icon-ctrl-btn" id="btn-reset-cam">⌂</button>
+      <button type="button" class="icon-ctrl-btn" id="btn-zoom-out">－</button>
+      <button type="button" class="icon-ctrl-btn" id="btn-rot-right">↻</button>
+    </div>
+
+    <!-- Modal 1: Add Village -->
+    <div class="modal-backdrop" id="modal-add-village" role="dialog" aria-modal="true">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title" id="mv-title">เพิ่มข้อมูลหมู่บ้านของคุณ</h2>
+            <p class="modal-subtitle" id="mv-sub">วางหมู่บ้านลงบนแผนที่ 3D พร้อมระบุปัญหาและความช่วยเหลือที่ต้องการ</p>
+          </div>
+          <button type="button" class="close-btn" data-close="modal-add-village">✕</button>
+        </div>
+        <form id="form-add-village" novalidate>
+          <div class="modal-body">
+            <div class="form-row-2">
+              <div class="field-group"><label class="field-label" for="inp-v-name">ชื่อหมู่บ้าน *</label><input type="text" class="text-input" id="inp-v-name" placeholder="เช่น บ้านห้วยน้ำริน" required></div>
+              <div class="field-group"><label class="field-label" for="inp-v-status">สถานะ</label><select class="select-input" id="inp-v-status"><option value="critical">🔴 วิกฤต — ต้องช่วยด่วน</option><option value="warning">🟠 เฝ้าระวัง — รอซ่อม</option><option value="good">🟢 ปกติ — ระบบดี</option></select></div>
+            </div>
+            <div class="form-row-2">
+              <div class="field-group"><label class="field-label" for="inp-v-homes">จำนวนครัวเรือน *</label><input type="number" min="1" class="text-input" id="inp-v-homes" placeholder="110" required></div>
+              <div class="field-group"><label class="field-label" for="inp-v-flow">อัตราไหลกลางคืน (ลิตร/ชม.)</label><input type="number" min="0" class="text-input" id="inp-v-flow" placeholder="950"></div>
+            </div>
+            <div class="form-row-2">
+              <div class="field-group"><label class="field-label" for="inp-v-fund-have">งบกองทุนที่มี (฿)</label><input type="number" min="0" class="text-input" id="inp-v-fund-have" placeholder="5000"></div>
+              <div class="field-group"><label class="field-label" for="inp-v-fund-need">งบซ่อมที่ต้องใช้ (฿)</label><input type="number" min="0" class="text-input" id="inp-v-fund-need" placeholder="9000"></div>
+            </div>
+            <div class="field-group"><label class="field-label" for="inp-v-zone">โซนบนแผนที่ 3D</label><select class="select-input" id="inp-v-zone"><option value="center">กลางหุบเขา</option><option value="west">ฝั่งตะวันตก</option><option value="east">ฝั่งตะวันออก</option><option value="south">ทิศใต้</option><option value="north">เชิงเขาทิศเหนือ</option></select></div>
+            <div class="field-group"><label class="field-label" for="inp-v-broke">🔴 สิ่งที่พัง / ปัญหาที่พบ *</label><textarea class="textarea-input" id="inp-v-broke" required></textarea></div>
+            <div class="field-group"><label class="field-label" for="inp-v-fix">🛠️ สิ่งที่ต้องซ่อม / ความช่วยเหลือที่ต้องการ *</label><textarea class="textarea-input" id="inp-v-fix" required></textarea></div>
+            <div class="field-group"><label class="field-label" for="inp-v-good">🟢 สิ่งที่ยังทำงานได้ดี</label><textarea class="textarea-input" id="inp-v-good"></textarea></div>
+            <div class="form-error" id="err-add-village">กรุณากรอกข้อมูลที่มีเครื่องหมาย * ให้ครบถ้วน</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="hud-btn" data-close="modal-add-village">ยกเลิก</button>
+            <button type="submit" class="hud-btn hud-btn-primary">บันทึกขึ้นแผนที่ 3D</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal 2: Supporting Agencies -->
+    <div class="modal-backdrop" id="modal-agencies" role="dialog" aria-modal="true">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title">🏢 ข้อมูลหน่วยงานและทีมสนับสนุน</h2>
+            <p class="modal-subtitle">ลงทะเบียนหน่วยงานรัฐ ท้องถิ่น หรือทีมช่างอาสาเพื่อจับคู่ช่วยเหลือหมู่บ้าน</p>
+          </div>
+          <button type="button" class="close-btn" data-close="modal-agencies">✕</button>
+        </div>
+        <div class="modal-body">
+          <div id="agencies-modal-list"></div>
+          <form id="form-add-agency" novalidate style="display:flex;flex-direction:column;gap:8px;padding-top:8px;border-top:1px solid var(--border);">
+            <div class="form-row-2">
+              <div class="field-group"><label class="field-label" for="inp-ag-name">ชื่อหน่วยงาน / ทีม *</label><input type="text" class="text-input" id="inp-ag-name" placeholder="เช่น กองช่าง อบต. / อาสาน้ำใจ" required></div>
+              <div class="field-group"><label class="field-label" for="inp-ag-type">ประเภท</label><select class="select-input" id="inp-ag-type"><option value="gov">ภาครัฐ / จังหวัด</option><option value="local">อบต. / ท้องถิ่น</option><option value="vol">ทีมช่างอาสา</option><option value="ngo">มูลนิธิ / มหาวิทยาลัย</option></select></div>
+            </div>
+            <div class="field-group"><label class="field-label" for="inp-ag-village">หมู่บ้านที่ดูแล</label><select class="select-input" id="inp-ag-village"></select></div>
+            <div class="field-group"><label class="field-label" for="inp-ag-detail">การสนับสนุน & ช่องทางติดต่อ *</label><textarea class="textarea-input" id="inp-ag-detail" required></textarea></div>
+            <div class="form-error" id="err-add-agency">กรุณากรอกชื่อหน่วยงานและรายละเอียด</div>
+            <button type="submit" class="hud-btn hud-btn-primary" style="align-self:flex-end;">บันทึกหน่วยงาน</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 3: Multi-Channel Simulator (2G SMS / LINE / WhatsApp) -->
+    <div class="modal-backdrop" id="modal-sms" role="dialog" aria-modal="true">
+      <div class="modal-dialog" style="max-width:430px;">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title">📱 ช่องทางสื่อสารชุมชน (SMS • LINE • WhatsApp)</h2>
+            <p class="modal-subtitle">Core Server แยกจากช่องทางสื่อสาร สลับใช้ได้ทุกประเทศทั่วโลก</p>
+          </div>
+          <button type="button" class="close-btn" data-close="modal-sms">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="sub-pill-bar" style="grid-template-columns:repeat(3,1fr);">
+            <button type="button" class="sub-pill-btn is-active" data-chan="sms">📟 2G SMS</button>
+            <button type="button" class="sub-pill-btn" data-chan="line">💬 LINE</button>
+            <button type="button" class="sub-pill-btn" data-chan="wa">🌍 WhatsApp</button>
+          </div>
+          <select class="select-input" id="sel-sms-village"></select>
+          <div class="keypad-phone">
+            <div style="display:flex;justify-content:space-between;font-size:10.5px;color:#94a3b8;font-weight:700;">
+              <span id="channel-header-net">📶 NAMJAI-SMS 2G (/api/sms/inbound)</span><span>🔋 96%</span>
+            </div>
+            <div class="lcd-screen" id="sms-lcd-screen"></div>
+            <div class="form-row-2">
+              <button type="button" class="kp-btn" id="btn-sms-cmd1">กด 1 • เช็กเวลาซ่อม</button>
+              <button type="button" class="kp-btn" id="btn-sms-cmd2">กด 2 • เช็กกองทุน</button>
+            </div>
+            <form id="form-sms-send" style="display:flex;gap:6px;" novalidate>
+              <input type="text" class="text-input" id="inp-sms-text" style="background:#0f172a;color:#fff;border-color:#475569;" placeholder="พิมพ์แจ้งเหตุ (+15 แต้มน้ำใจ)...">
+              <button type="submit" class="hud-btn hud-btn-primary">ส่ง</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 4: Verified Evidence, Citations, Multi-Track ROI & Xylem Rubric -->
+    <div class="modal-backdrop" id="modal-impact" role="dialog" aria-modal="true">
+      <div class="modal-dialog" style="max-width:600px;">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title" id="mimp-title">📚 หลักฐานอ้างอิงจริง, ความคุ้มค่า & เกณฑ์ Xylem 2026</h2>
+            <p class="modal-subtitle">อ้างอิงข้อมูลจริงจาก World Bank • กปภ. • UNICEF • Proparco และแบบจำลองวิศวกรรมโปร่งใส</p>
+          </div>
+          <button type="button" class="close-btn" data-close="modal-impact">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="sub-pill-bar" style="grid-template-columns:repeat(3,1fr);">
+            <button type="button" class="sub-pill-btn is-active" data-imptab="evidence">📚 หลักฐาน & อ้างอิงจริง</button>
+            <button type="button" class="sub-pill-btn" data-imptab="calc">🌍 คำนวณความคุ้มค่า</button>
+            <button type="button" class="sub-pill-btn" data-imptab="rubric">🏆 เทียบเกณฑ์ Xylem</button>
+          </div>
+
+          <!-- Tab 1: Verified Real-World Citations -->
+          <div id="imp-pane-evidence" style="display:flex;flex-direction:column;gap:8px;">
+            <div class="cite-card">
+              <div style="font-size:12.4px;font-weight:800;">1. World Bank — น้ำประปารั่วไหลในประเทศกำลังพัฒนา 45 ล้าน ลบ.ม./วัน</div>
+              <div style="font-size:11.4px;color:var(--ink-soft);line-height:1.44;">ประเทศกำลังพัฒนาสูญเสียน้ำประปาในท่อถึง <strong>~45 ล้าน ลบ.ม./วัน</strong> (เพียงพอเลี้ยงคนเกือบ <strong>200 ล้านคน</strong>) โดย World Bank ชี้ชัดว่าต้นตอไม่ใช่แค่เรื่องท่อ แต่คือ <strong>การขาดระบบธรรมาภิบาล งบซ่อมบำรุงโปร่งใส และแรงจูงใจผู้ดูแล</strong> ซึ่งตรงกับระบบ Proof-of-Repair และกองทุนโปร่งใสของ NamJai โดยตรง</div>
+              <a class="mini-link-btn" style="align-self:flex-start;" rel="noopener" data-link-removed aria-disabled="true" role="link" title="Link removed: its address didn't come from this conversation.">🔗 แหล่งอ้างอิง: World Bank Water Blog ↗</a>
+            </div>
+            <div class="cite-card">
+              <div style="font-size:12.4px;font-weight:800;">2. Proparco / S&P Global — น้ำสูญเสียโลกปล่อยก๊าซเรือนกระจก 11,900 ล้าน kg CO₂/ปี</div>
+              <div style="font-size:11.4px;color:var(--ink-soft);line-height:1.44;">ทั่วโลกสูญเสียน้ำ (NRW) <strong>346 ล้าน ลบ.ม./วัน</strong> (มูลค่ากว่า <strong>50,000 ล้านดอลลาร์/ปี</strong>) และสิ้นเปลืองพลังงานสูบน้ำคิดเป็นคาร์บอนถึง <strong>11.9 พันล้าน kg CO₂/ปี</strong> ขณะที่ประชากรโลก <strong>2.2 พันล้านคน</strong> ยังขาดน้ำดื่มปลอดภัย</div>
+              <a class="mini-link-btn" style="align-self:flex-start;" rel="noopener" data-link-removed aria-disabled="true" role="link" title="Link removed: its address didn't come from this conversation.">🔗 แหล่งอ้างอิง: Proparco / S&P Global Study ↗</a>
+            </div>
+            <div class="cite-card">
+              <div style="font-size:12.4px;font-weight:800;">3. การประปาส่วนภูมิภาค (กปภ.) & Thai PBS — ข้อมูลจริงประเทศไทย</div>
+              <div style="font-size:11.4px;color:var(--ink-soft);line-height:1.44;">คนไทยกว่า <strong>8.25 ล้านคน</strong> ยังเข้าไม่ถึงน้ำประปา และเฉพาะโครงข่าย กปภ. มีน้ำสูญเสียกว่า <strong>568 ล้าน ลบ.ม./ปี</strong> (มูลค่า 3,000–4,000 ล้านบาท/ปี) โดยมีค่าพลังงานไฟฟ้าในการสูบน้ำเฉลี่ยจริงที่ <strong>0.35–0.75 kWh/ลบ.ม.</strong> (ใช้เป็นค่าฐานในเครื่องคำนวณพลังงานของแอปนี้)</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <a class="mini-link-btn" rel="noopener" data-link-removed aria-disabled="true" role="link" title="Link removed: its address didn't come from this conversation.">🔗 เอกสารวิชาการ กปภ. (PWA) ↗</a>
+                <a class="mini-link-btn" rel="noopener" data-link-removed aria-disabled="true" role="link" title="Link removed: its address didn't come from this conversation.">🔗 Thai PBS Policy Watch ↗</a>
+              </div>
+            </div>
+            <div class="cite-card">
+              <div style="font-size:12.4px;font-weight:800;">4. UNICEF WASH — ทำไมระบบประปาหมู่บ้านถึงพังซ้ำซาก</div>
+              <div style="font-size:11.4px;color:var(--ink-soft);line-height:1.44;">UNICEF ระบุว่าจุดอ่อนสำคัญของประปาชนบทคือการเสื่อมสภาพก่อนกำหนดเพราะขาดระบบเก็บเงินกองทุนซ่อมบำรุงที่โปร่งใสและการมีส่วนร่วมของชุมชน — NamJai จึงเริ่มด้วยซอฟต์แวร์ <strong>$0 Day-1</strong> ที่ทุกหมู่บ้านใช้ได้ทันทีโดยไม่ต้องรอซื้อฮาร์ดแวร์แพง</div>
+              <a class="mini-link-btn" style="align-self:flex-start;" rel="noopener" data-link-removed aria-disabled="true" role="link" title="Link removed: its address didn't come from this conversation.">🔗 แหล่งอ้างอิง: UNICEF Water & Environment ↗</a>
+            </div>
+          </div>
+
+          <!-- Tab 2: Scaling & Zero-Hardware Economics -->
+          <div id="imp-pane-calc" style="display:none;flex-direction:column;gap:10px;">
+            <div class="sim-badge" style="align-self:flex-start;">🧪 แบบจำลองคำนวณโดยอิงค่าไฟสูบน้ำจริงของ กปภ. (0.50 kWh/m³) & แนวทาง docs/claims-checklist.md</div>
+            <div class="field-group">
+              <div class="subsec-head">
+                <label class="field-label" for="rng-scale-villages">🌍 จำลองการขยายผลแพลตฟอร์ม NamJai:</label>
+                <strong style="font-size:13px;color:var(--brand);" id="val-scale-villages">50 หมู่บ้าน</strong>
+              </div>
+              <input type="range" id="rng-scale-villages" min="5" max="500" step="5" value="50" style="width:100%;accent-color:var(--brand);">
+            </div>
+            <div class="impact-grid-4">
+              <div class="impact-kpi"><span class="impact-kpi-val" id="kpi-water-yr">0</span><span class="impact-kpi-lbl">💧 น้ำสะอาดที่รักษากลับคืน (Water Quantity)</span></div>
+              <div class="impact-kpi"><span class="impact-kpi-val" id="kpi-people">0</span><span class="impact-kpi-lbl">🏘️ ครัวเรือนมีน้ำใช้โปร่งใส (Water Access)</span></div>
+              <div class="impact-kpi"><span class="impact-kpi-val" id="kpi-pump-hrs">0</span><span class="impact-kpi-lbl">⚙️ ลดชั่วโมงเดินปั๊มน้ำฟรี — ยืดอายุปั๊ม</span></div>
+              <div class="impact-kpi"><span class="impact-kpi-val" id="kpi-co2">0</span><span class="impact-kpi-lbl">🌱 ลดไฟสูบน้ำ (อิงค่า กปภ. 0.5 kWh/m³)</span></div>
+            </div>
+            <table class="comp-table">
+              <thead><tr><th>แนวทางติดตั้ง</th><th style="color:#059669;">📱 ระยะที่ 1: มือถือผู้ดูแล ($0)</th><th style="color:var(--brand);">📐 ระยะที่ 2: NamJai Clip</th><th>Smart Meter อุตสาหกรรม</th></tr></thead>
+              <tbody>
+                <tr><td><strong>งบอุปกรณ์วันแรก</strong></td><td><strong style="color:#059669;">฿0 ($0 USD — ใช้มือถือเดิม)</strong></td><td>ประหยัด (ESP32-CAM + ฝา 3D)</td><td>แพงกว่า ~8–10 เท่า</td></tr>
+                <tr><td><strong>การตัดต่อท่อประปา</strong></td><td>ไม่ต้องตัดท่อ เริ่มใน 5 นาที</td><td>สวมทับหน้าปัดเดิมใน 15 นาที</td><td>ต้องตัดท่อเมน ปิดน้ำทั้งหมู่บ้าน</td></tr>
+                <tr><td><strong>ระบบกองทุน & ช่าง 3D</strong></td><td>✓ ครบ 100% ตั้งแต่วันแรก</td><td>✓ อัตโนมัติรายชั่วโมง</td><td>✗ ไม่มีระบบบริหารชุมชน</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Tab 3: Xylem 3-Criteria Rubric -->
+          <div id="imp-pane-rubric" style="display:none;flex-direction:column;gap:8px;">
+            <div class="cite-card">
+              <div style="font-size:12.5px;font-weight:800;">1. Impact (ขยายผลไวด้วยงบเริ่มต้น $0 + รองรับ SMS/LINE/WhatsApp ทั่วโลก)</div>
+              <div style="font-size:11.4px;color:var(--muted);">หมู่บ้านยากจนเริ่มใช้ได้ทันทีตั้งแต่วันแรกโดยไม่ต้องซื้อเซนเซอร์ ลดทั้งน้ำสูญเสีย พลังงานปั๊มน้ำ และคาร์บอน</div>
+              <button type="button" class="mini-link-btn" style="align-self:flex-start;" data-rubric-act="zero">📸 ทดลองอัปโหลดรูปมิเตอร์ด้วยมือถือ ($0 Mode) →</button>
+            </div>
+            <div class="cite-card">
+              <div style="font-size:12.5px;font-weight:800;">2. Challenge Fit & Feasibility (แก้ปัญหาจริงตามหลักฐาน World Bank & UNICEF)</div>
+              <div style="font-size:11.4px;color:var(--muted);">แก้จุดตายเรื่องความโปร่งใสของกองทุนซ่อมบำรุง มี PWA Offline Queue สำหรับพื้นที่อับสัญญาณ และมีพิมพ์เขียวฮาร์ดแวร์ต่อยอดระยะที่ 2</div>
+              <button type="button" class="mini-link-btn" style="align-self:flex-start;" data-rubric-act="sms">📱 ทดสอบสลับ 2G SMS / LINE / WhatsApp →</button>
+            </div>
+            <div class="cite-card">
+              <div style="font-size:12.5px;font-weight:800;">3. Innovation (แผนที่หุบเขา 3D สไตล์เกม + วงจร See. Locate. Fix. Prove.)</div>
+              <div style="font-size:11.4px;color:var(--muted);">สอดคล้องกับแชมป์ Xylem ปี 2023–2024 ที่ชนะด้วย Gamified UX เปลี่ยนข้อมูลซับซ้อนเป็นฉาก 3D ที่มีช่างซ่อม วาล์ว Step Test และแต้มน้ำใจ</div>
+              <button type="button" class="mini-link-btn" style="align-self:flex-start;" data-rubric-act="tour">🏆 เปิดโหมดสาธิตกรรมการ 4 ขั้นตอน →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 5: Zero-Hardware Smartphone Meter OCR ($0 Day-1) + Bench Lab + Phase-2 Clip Blueprint -->
+    <div class="modal-backdrop" id="modal-hw" role="dialog" aria-modal="true">
+      <div class="modal-dialog" style="max-width:570px;">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title">📸 โหมดถ่ายมิเตอร์ด้วยมือถือ ($0 Day-1) & พิมพ์เขียวระยะ 2</h2>
+            <p class="modal-subtitle">เริ่มต้นใช้งานจริงได้ทันทีในงบฮาร์ดแวร์ 0 บาท ด้วยมือถือเครื่องเดียว หรือต่อยอดด้วยพิมพ์เขียว NamJai Clip</p>
+          </div>
+          <button type="button" class="close-btn" data-close="modal-hw">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="sub-pill-bar" style="grid-template-columns:repeat(3,1fr);">
+            <button type="button" class="sub-pill-btn is-active" data-hwtab="phone">📱 มือถือถ่ายมิเตอร์ ($0)</button>
+            <button type="button" class="sub-pill-btn" data-hwtab="bench">🧪 แล็บจับน้ำหยด</button>
+            <button type="button" class="sub-pill-btn" data-hwtab="explode">📐 พิมพ์เขียวระยะ 2</button>
+          </div>
+
+          <!-- Tab 1: REAL Smartphone Meter Photo Uploader ($0 Hardware Mode!) -->
+          <div id="hw-pane-phone" style="display:flex;flex-direction:column;gap:9px;">
+            <div class="zero-badge" style="align-self:flex-start;">✅ Zero-Hardware Day-1 Mode: ผู้ดูแลหรือชาวบ้านถ่ายรูปหน้าปัดมิเตอร์ก่อนนอน–ตื่นเช้าด้วยมือถือ ไม่ต้องซื้ออุปกรณ์!</div>
+            <div class="photo-preview-box" id="phone-photo-box">
+              <div id="phone-photo-placeholder">
+                <div style="font-size:24px;margin-bottom:4px;">📷</div>
+                <div style="font-size:12px;font-weight:700;">อัปโหลดรูปถ่ายหน้าปัดมิเตอร์น้ำจากมือถือของคุณ (หรือกดใช้ภาพตัวอย่าง)</div>
+                <div style="font-size:11px;color:#94a3b8;margin-top:2px;">รองรับไฟล์รูปถ่ายจากกล้องมือถือจริงเพื่อทดสอบส่งเข้า FastAPI OCR</div>
+              </div>
+              <img id="phone-photo-img" alt="Uploaded water meter" style="display:none;">
+              <span class="ocr-scan-badge" id="phone-ocr-badge" style="display:none;">AI OCR Verified ✓</span>
+            </div>
+
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <label class="hud-btn hud-btn-primary" style="cursor:pointer;">
+                📤 เลือกรูปมิเตอร์จากเครื่อง/มือถือ
+                <input type="file" id="inp-meter-file" accept="image/*" style="display:none;">
+              </label>
+              <button type="button" class="hud-btn" id="btn-sample-photo">🧪 จำลองภาพถ่ายมิเตอร์หน้าบ้าน</button>
+            </div>
+
+            <div class="box-card">
+              <span class="field-label">คำนวณอัตราไหลกลางดึกจาก 2 ภาพถ่ายมือถือ (22:00 น. ➔ 05:00 น. = 7 ชม.):</span>
+              <div class="form-row-2">
+                <div class="field-group"><label class="field-label" for="inp-ph-night">เลขมิเตอร์ 22:00 น. (m³)</label><input type="number" step="0.001" class="text-input" id="inp-ph-night" value="148.200"></div>
+                <div class="field-group"><label class="field-label" for="inp-ph-dawn">เลขมิเตอร์ 05:00 น. (m³)</label><input type="number" step="0.001" class="text-input" id="inp-ph-dawn" value="150.160"></div>
+              </div>
+              <div class="form-row-2" style="align-items:end;">
+                <div class="field-group"><label class="field-label" for="sel-ph-village">บันทึกผลเข้าหมู่บ้านบนแผนที่ 3D</label><select class="select-input" id="sel-ph-village"></select></div>
+                <button type="button" class="hud-btn hud-btn-green" id="btn-apply-phone-ocr" style="justify-content:center;">🚀 วิเคราะห์ & อัปเดตแผนที่ 3D</button>
+              </div>
+              <div id="phone-calc-verdict" style="font-size:11.8px;font-weight:700;color:var(--brand);"></div>
+            </div>
+          </div>
+
+          <!-- Tab 2: Bench Leak Test Lab -->
+          <div id="hw-pane-bench" style="display:none;flex-direction:column;gap:9px;">
+            <div class="sim-badge" style="align-self:flex-start;">🧪 จำลองการทดสอบตามไฟล์ docs/field-test.md</div>
+            <div class="sub-pill-bar" style="grid-template-columns:repeat(3,1fr);">
+              <button type="button" class="sub-pill-btn" data-bflow="0">🔒 ปิดสนิท (0 L/h)</button>
+              <button type="button" class="sub-pill-btn is-active" data-bflow="24">💧 หยดซึม (24 L/h)</button>
+              <button type="button" class="sub-pill-btn" data-bflow="360">💥 ท่อรั่ว (360 L/h)</button>
+            </div>
+            <div class="ocr-cam-card" id="bench-cam-box">
+              <div class="ocr-cam-head"><span id="bench-cam-status">📷 OCR Feed • Ready</span><span style="color:#4ade80;">AI OCR 99.4%</span></div>
+              <div class="ocr-meter-drum" id="bench-drum"></div>
+              <div class="subsec-head" style="margin-top:3px;">
+                <span style="font-size:11px;color:#94a3b8;" id="bench-delta-txt"></span>
+                <button type="button" class="hud-btn hud-btn-primary" id="btn-bench-snap">📸 ถ่ายภาพวัดผล (+1 ชม.)</button>
+              </div>
+            </div>
+            <div class="box-card" id="bench-verdict-box"></div>
+          </div>
+
+          <!-- Tab 3: Phase-2 Optional Open-Hardware Blueprint -->
+          <div id="hw-pane-explode" style="display:none;flex-direction:column;gap:9px;">
+            <div class="sim-badge" style="align-self:flex-start;">📐 พิมพ์เขียวส่วนต่อขยายระยะที่ 2 (Open-Hardware Blueprint เมื่อกองทุนหมู่บ้านพร้อมอัปเกรดอัตโนมัติ)</div>
+            <div class="hw-stage">
+              <div class="subsec-head">
+                <span style="font-size:11.3px;font-weight:800;color:#7dd3fc;">คลิกแต่ละชั้นบนภาพ Isometric เพื่อดูสเปกการออกแบบ</span>
+                <button type="button" class="hud-btn hud-btn-primary" id="btn-toggle-explode" style="padding:4px 10px;">🔩 ประกอบร่าง</button>
+              </div>
+              <svg class="hw-iso-svg" id="hw-iso-svg" viewBox="0 0 380 205" width="100%" height="182">
+                <g class="iso-layer is-active" data-hw="solar" id="svg-ly-solar" transform="translate(0,-24)">
+                  <polygon points="190,28 256,48 190,68 124,48" fill="#1d4ed8" stroke="#60a5fa" stroke-width="2"/>
+                  <text x="295" y="52" font-size="10" font-weight="700" fill="#7dd3fc">① 2W Solar Cap</text>
+                </g>
+                <g class="iso-layer" data-hw="esp" id="svg-ly-esp" transform="translate(0,-10)">
+                  <polygon points="190,64 236,78 190,92 144,78" fill="#065f46" stroke="#34d399" stroke-width="2"/>
+                  <circle cx="190" cy="78" r="7" fill="#090d16" stroke="#38bdf8" stroke-width="2"/>
+                  <text x="295" y="82" font-size="10" font-weight="700" fill="#6ee7b7">② ESP32-CAM</text>
+                </g>
+                <g class="iso-layer" data-hw="led" id="svg-ly-led" transform="translate(0,3)">
+                  <ellipse cx="190" cy="103" rx="40" ry="12" fill="none" stroke="#fbbf24" stroke-width="3" stroke-dasharray="6 4"/>
+                  <text x="295" y="107" font-size="10" font-weight="700" fill="#fde68a">③ Anti-Glare LED</text>
+                </g>
+                <g class="iso-layer" data-hw="hood" id="svg-ly-hood" transform="translate(0,15)">
+                  <path d="M 142,118 L 142,140 Q 190,156 238,140 L 238,118 Z" fill="rgba(14,165,233,.42)" stroke="#38bdf8" stroke-width="2"/>
+                  <text x="295" y="134" font-size="10" font-weight="700" fill="#bae6fd">④ 3D PETG Hood</text>
+                </g>
+                <g class="iso-layer" data-hw="meter" id="svg-ly-meter" transform="translate(0,26)">
+                  <rect x="110" y="150" width="160" height="11" rx="5" fill="#b45309" stroke="#fbbf24" stroke-width="1.5"/>
+                  <ellipse cx="190" cy="152" rx="44" ry="14" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+                  <text x="295" y="159" font-size="10" font-weight="700" fill="#fcd34d">⑤ Analog Meter</text>
+                </g>
+              </svg>
+            </div>
+            <div class="box-card" id="hw-spec-detail"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      const INITIAL_VILLAGES = [
+        {
+          id:"huai-mok", origOrder:1, priority:1, status:"critical", pos:{x:-20,z:-8}, houseCount:6, roofColor:0xd96b4f, meterReading:"0048294", ocrConf:99.1, foggy:false, fundPct:27,
+          th:{ rankLabel:"#1 ด่วนที่สุด", statusTag:"ท่อเมนแตก", pinSub:"💥 ท่อเมนแตก • ช่วยก่อน", name:"บ้านห้วยหมอก", issueShort:"ท่อส่งน้ำหลัก PVC 3 นิ้วแตก น้ำไม่ไหลเข้าท้ายหมู่บ้าน", summary:"ตรวจพบอัตราไหลพุ่งผิดปกติช่วงตี 2 จากภาพถ่ายมิเตอร์", nightFlow:"4,850 ล./ชม.", households:"142 ครัวเรือน", clipStatus:"OCR 99.1%", fundText:"มี ฿3,200 / ต้องใช้ ฿11,700 (ขาดงบสมทบ ฿8,500)", fundNote:"ต้องการงบสมทบค่าท่อเร่งด่วน ฿8,500 และทีมช่างอาสา 3 คน", broke:["ท่อเมนหลัก PVC 3 นิ้วแตกบริเวณคอสะพานข้ามห้วย น้ำพุ่งเสียทิ้งตลอดเวลา","ระดับน้ำในหอถังสูงลดต่ำกว่า 15% บ้านท้ายหมู่บ้านขาดน้ำ"], fix:["เปลี่ยนท่อ PVC ชั้น 13.5 ยาว 12 เมตร พร้อมหน้าจานเหล็ก","ระดมช่างอาสา 3 คน + งบสมทบ ฿8,500 และยืนยันผล Proof-of-Repair"], good:["อ่านมิเตอร์ด้วย AI OCR แม่นยำ 99.1%","ระบบ SMS แจ้งเตือนชาวบ้านสำรองน้ำล่วงหน้าทันเวลา"] },
+          en:{ rankLabel:"#1 HELP FIRST", statusTag:"Main Pipe Burst", pinSub:"💥 Pipe Burst • Help #1", name:"Ban Huai Mok", issueShort:"3-inch PVC main pipe burst at creek bridge; tail-end homes dry", summary:"Continuous night-flow burst caught via meter OCR.", nightFlow:"4,850 L/hr", households:"142 homes", clipStatus:"OCR 99.1%", fundText:"฿3,200 saved / ฿11,700 needed (Short ฿8,500)", fundNote:"Needs ฿8,500 parts grant + 3 volunteer technicians today.", broke:["3-inch main PVC pipe ruptured near bridge with heavy loss.","Water tower dropped below 15%, leaving tail-end homes dry."], fix:["Replace 12m Class 13.5 PVC pipe & steel flanges.","Dispatch 3 volunteer techs + verify Proof-of-Repair."], good:["AI meter OCR operating at 99.1% confidence.","SMS Gateway alerted keypad-phone residents early."] }
+        },
+        {
+          id:"pha-saeng-dao", origOrder:2, priority:2, status:"critical", pos:{x:18,z:-12}, houseCount:5, roofColor:0xc2654c, meterReading:"0031958", ocrConf:78.4, foggy:true, fundPct:75,
+          th:{ rankLabel:"#2 ช่วยถัดไป", statusTag:"น้ำรั่วใต้ดิน", pinSub:"💧 น้ำรั่วสูง + หน้าปัดชื้น", name:"บ้านผาแสงดาว", issueShort:"น้ำรั่วซึมใต้ดินช่วงตี 2–4 สูงผิดปกติ ต้องทำ Step Test", summary:"พบน้ำสูญเสียสะสม 3 คืนติดกัน ต้องไล่ปิดวาล์วหาพิกัดท่อรั่ว", nightFlow:"1,420 ล./ชม.", households:"96 ครัวเรือน", clipStatus:"มีฝ้า 78.4%", fundText:"มี ฿6,400 / ประเมินซ่อม ฿8,500 (ขาดอีก ฿2,100)", fundNote:"ต้องการอาสาช่วยทำ Step Test ไล่ปิดวาล์วชี้จุดรั่วใต้ดิน", broke:["น้ำรั่วซึมใต้ดินต่อเนื่อง 1,420 ลิตร/ชม. ช่วงตี 2–4","กระจกหน้าปัดมิเตอร์มีไอน้ำเกาะตอนเช้ามืด (OCR 78.4%)"], fix:["ทำ Step Test ไล่ปิดวาล์วทีละโซนเพื่อชี้จุดรั่ว","เช็ดหน้าปัดมิเตอร์และสมทบงบข้อต่อ ฿2,100"], good:["ปั๊มโซลาร์เซลล์และหอถังน้ำยังจ่ายน้ำกลางวันได้เสถียร","บัญชีกองทุนคณะกรรมการโปร่งใสตรวจสอบได้"] },
+          en:{ rankLabel:"#2 URGENT", statusTag:"Hidden Leak", pinSub:"💧 Night Leak + Foggy Dial", name:"Ban Pha Saeng Dao", issueShort:"High 2–4 AM underground leak; needs zone Step Test", summary:"3 nights of elevated minimum night flow; requires valve Step Test.", nightFlow:"1,420 L/hr", households:"96 homes", clipStatus:"Foggy 78.4%", fundText:"฿6,400 saved / ฿8,500 est. (Short ฿2,100)", fundNote:"Needs volunteer support to run Step Test & top up ฿2,100.", broke:["Unlocated underground leak losing ~1,420 L/hr at 2–4 AM.","Dawn condensation on meter glass reduces OCR to 78.4%."], fix:["Run Step Test across branch valves to isolate leaking lane.","Wipe meter glass / fit anti-fog seal & couplings."], good:["Solar pump maintains steady daytime pressure.","Transparent village repair fund ledger."] }
+        },
+        {
+          id:"mae-nam-sai", origOrder:3, priority:3, status:"warning", pos:{x:-8,z:14}, houseCount:5, roofColor:0xd89643, meterReading:"0027412", ocrConf:98.8, foggy:false, fundPct:100,
+          th:{ rankLabel:"#3 เฝ้าระวัง", statusTag:"วาล์วซึมเล็กน้อย", pinSub:"🔧 วาล์วโซนเหนือซึม", name:"บ้านแม่น้ำใส", issueShort:"ประตูน้ำโซนเหนือปิดไม่สนิท กองทุนหมู่บ้านมีงบซ่อมเองได้", summary:"กองทุนชุมชนเพียงพอซ่อมเอง ต้องการเพียงคำแนะนำช่างเทคนิค", nightFlow:"390 ล./ชม.", households:"118 ครัวเรือน", clipStatus:"OCR 98.8%", fundText:"มี ฿14,800 / ค่าอะไหล่วาล์ว ฿1,800 (งบเพียงพอ)", fundNote:"ใช้งบกองทุนหมู่บ้านซ่อมเองได้ อาสาให้คำปรึกษาออนไลน์ได้", broke:["วาล์วประตูน้ำ 2 นิ้ว โซนเหนือเสื่อมสภาพ มีน้ำหยดซึม"], fix:["เปลี่ยนชุดซีลวาล์วทองเหลือง 2 นิ้ว (งบกองทุน ฿1,800)"], good:["ซิงก์ข้อมูลผ่าน PWA Offline Queue ได้ลื่นไหลแม้เน็ตอ่อน","กองทุนแข็งแกร่ง ชาวบ้านชำระค่าน้ำตรงเวลา 94%"] },
+          en:{ rankLabel:"#3 WATCH", statusTag:"Minor Valve Drip", pinSub:"🔧 North Valve Seepage", name:"Ban Mae Nam Sai", issueShort:"2-inch north gate valve worn; village fund covers repair", summary:"Self-funded by village repair fund; routine guidance needed.", nightFlow:"390 L/hr", households:"118 homes", clipStatus:"OCR 98.8%", fundText:"฿14,800 saved / ฿1,800 valve cost (Fully Funded)", fundNote:"Village fund covers parts; remote advice sufficient.", broke:["North zone 2-inch gate valve stem seepage."], fix:["Replace 2-inch valve seal kit using ฿1,800 village fund."], good:["PWA Offline Queue syncs smoothly.","94% on-time community bill collection."] }
+        },
+        {
+          id:"doi-rom-mai", origOrder:4, priority:4, status:"good", pos:{x:-26,z:16}, houseCount:4, roofColor:0x3f9682, meterReading:"0019045", ocrConf:99.6, foggy:false, fundPct:100,
+          th:{ rankLabel:"✓ ปกติ", statusTag:"เพิ่งซ่อมเสร็จ", pinSub:"✅ ซ่อมแล้ว (Proof-of-Repair)", name:"บ้านดอยร่มไม้", issueShort:"ซ่อมท่อซอย 3 เสร็จและยืนยันผล Proof-of-Repair เรียบร้อย", summary:"อัตราไหลกลางคืนลดกลับสู่เกณฑ์ปกติ ไม่ต้องส่งทีมฉุกเฉิน", nightFlow:"110 ล./ชม.", households:"84 ครัวเรือน", clipStatus:"OCR 99.6%", fundText:"เงินกองทุนคงเหลือ ฿19,500 (สมดุลดีมาก)", fundNote:"ระบบเสถียร ไม่ต้องการความช่วยเหลือเร่งด่วน", broke:["ไม่มีจุดชำรุดค้าง (ปิดงานซ่อมซอย 3 เรียบร้อยแล้ว)"], fix:["ไม่มีงานซ่อมด่วน — ตรวจเช็กตามรอบปกติ"], good:["ผ่าน Proof-of-Repair กราฟน้ำรั่วลดลงชัดเจนหลังซ่อม","กองทุนโปร่งใส ชาวบ้านตรวจสอบได้ทุกยอด"] },
+          en:{ rankLabel:"✓ HEALTHY", statusTag:"Repair Proven", pinSub:"✅ Verified Proof-of-Repair", name:"Ban Doi Rom Mai", issueShort:"Lane 3 repair verified via Proof-of-Repair", summary:"Night flow back to baseline; no emergency dispatch needed.", nightFlow:"110 L/hr", households:"84 homes", clipStatus:"OCR 99.6%", fundText:"฿19,500 Repair Fund Balance (Healthy)", fundNote:"All systems healthy.", broke:["Nothing broken."], fix:["Routine monthly check only."], good:["Proof-of-Repair confirmed flow dropped to 110 L/hr.","Transparent community ledger."] }
+        },
+        {
+          id:"thung-ruang-thong", origOrder:5, priority:5, status:"good", pos:{x:22,z:15}, houseCount:6, roofColor:0x4b8fa8, meterReading:"0054120", ocrConf:99.5, foggy:false, fundPct:100,
+          th:{ rankLabel:"✓ ต้นแบบ", statusTag:"ระบบดีเยี่ยม", pinSub:"✅ สมบูรณ์ • ช่างพร้อมช่วย", name:"บ้านทุ่งรวงทอง", issueShort:"ไม่พบน้ำรั่วไหล ช่างชุมชนพร้อมไปช่วยหมู่บ้านข้างเคียง", summary:"หมู่บ้านต้นแบบ ช่างประจำหมู่บ้านไปเสริมทีมช่วยบ้านห้วยหมอกได้", nightFlow:"95 ล./ชม.", households:"165 ครัวเรือน", clipStatus:"OCR 99.5%", fundText:"เงินกองทุนคงเหลือ ฿28,400 (แข็งแกร่ง)", fundNote:"ช่างประปาชุมชนว่าง 1 คน พร้อมไปช่วย #1 บ้านห้วยหมอก!", broke:["ไม่พบจุดชำรุดในระบบ"], fix:["ไม่มีจุดต้องซ่อม — พร้อมส่งช่างชุมชนช่วยหมู่บ้านข้างเคียง"], good:["น้ำสูญเสียต่ำที่สุดในหุบเขา","ชาวบ้านเช็กยอดกองทุนผ่านเว็บและ SMS ได้สะดวก"] },
+          en:{ rankLabel:"✓ MODEL", statusTag:"Optimal", pinSub:"✅ Healthy • Tech Available", name:"Ban Thung Ruang Thong", issueShort:"Zero leaks; local technician available to help neighbors", summary:"Model village; technician can assist #1 Ban Huai Mok.", nightFlow:"95 L/hr", households:"165 homes", clipStatus:"OCR 99.5%", fundText:"฿28,400 Repair Fund Balance (Strong)", fundNote:"1 local technician available to assist #1 Ban Huai Mok!", broke:["No broken components."], fix:["Ready to lend tools & tech to neighbors."], good:["Lowest night-flow baseline in valley.","Full trust across PWA and SMS."] }
+        }
+      ];
+
+      const INIT_JSON = JSON.stringify(INITIAL_VILLAGES);
+      let VILLAGES = JSON.parse(INIT_JSON);
+      let lang = "th", isNightMode = false, isOfflineSim = false, offlineQueueCount = 0;
+      let isResetConfirming = false, resetTimer = null, isQueueCollapsed = false;
+      let activeFilter = "all", selectedVillageId = null, activeZone = "all";
+      let activeInspectorTab = "status", activeRepairSubTab = "crew";
+      let agencies = [], commentsByVillage = {}, repairsByVillage = {}, stepValvesByVillage = {}, smsByVillage = {}, ledgerByVillage = {};
+      let stewardPoints = 0, unreadSmsCount = 0, currentJudgeStep = 1, activeChannel = "sms";
+      const STORAGE_KEY = "namjai_3d_user_state_v1";
+
+      const esc = (s) => String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      const nowStr = () => { const d = new Date(); return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0"); };
+      const flowNum = (s) => { const m = String(s || "").replace(/,/g,"").match(/(\d+(\.\d+)?)/); return m ? parseFloat(m[1]) : 350; };
+      const byId = (id) => document.getElementById(id);
+
+      function saveState() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            customVillages: VILLAGES.filter(v => v.isCustom),
+            agencies, commentsByVillage, repairsByVillage, smsByVillage, ledgerByVillage, stewardPoints
+          }));
+        } catch (e) {}
+      }
+
+      function applyRepairDone(v, r) {
+        v.status = "good"; v.foggy = false; v.ocrConf = 99.4;
+        v.th.clipStatus = v.en.clipStatus = "OCR 99.4%";
+        v.th.statusTag = "ซ่อมเสร็จยืนยันผล"; v.en.statusTag = "Proof-of-Repair";
+        v.th.pinSub = "✅ ซ่อมเสร็จ • " + r.afterFlowNum + " ล./ชม."; v.en.pinSub = "✅ Repaired • " + r.afterFlowNum + " L/hr";
+        v.th.nightFlow = r.afterFlowNum + " ล./ชม."; v.en.nightFlow = r.afterFlowNum + " L/hr";
+        v.th.issueShort = "ซ่อมเสร็จโดย " + r.tech + " ยืนยันผล Proof-of-Repair แล้ว";
+        v.en.issueShort = "Repaired by " + r.tech + " & verified via Proof-of-Repair";
+        v.th.broke = ["ไม่มีจุดชำรุดค้าง (ยืนยันมิเตอร์เมื่อ " + r.finishedAt + ")"];
+        v.en.broke = ["No active issues (verified at " + r.finishedAt + ")"];
+      }
+
+      function recomputePriorities() {
+        const w = { critical:0, warning:1, good:2 };
+        VILLAGES.sort((a,b) => (w[a.status] - w[b.status]) || ((a.origOrder||99) - (b.origOrder||99)));
+        VILLAGES.forEach((v, i) => {
+          v.priority = i + 1;
+          if (v.status === "good") {
+            if (repairsByVillage[v.id]?.status === "completed") { v.th.rankLabel = "✓ ซ่อมเสร็จแล้ว"; v.en.rankLabel = "✓ PROVEN FIX"; }
+          } else {
+            v.th.rankLabel = "#" + v.priority + (v.status === "critical" ? " ต้องช่วยด่วน" : " เฝ้าระวัง");
+            v.en.rankLabel = "#" + v.priority + (v.status === "critical" ? " URGENT" : " WATCH");
+          }
+        });
+      }
+
+      function loadState() {
+        try {
+          const p = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+          if (!p) return;
+          if (Array.isArray(p.customVillages)) p.customVillages.forEach(cv => { if (cv?.id && !VILLAGES.some(x => x.id === cv.id)) VILLAGES.push(cv); });
+          if (Array.isArray(p.agencies)) agencies = p.agencies;
+          if (p.commentsByVillage) commentsByVillage = p.commentsByVillage;
+          if (p.smsByVillage) smsByVillage = p.smsByVillage;
+          if (p.ledgerByVillage) ledgerByVillage = p.ledgerByVillage;
+          if (typeof p.stewardPoints === "number") stewardPoints = p.stewardPoints;
+          if (p.repairsByVillage) {
+            repairsByVillage = p.repairsByVillage;
+            Object.keys(repairsByVillage).forEach(vid => {
+              const r = repairsByVillage[vid];
+              if (r?.status === "completed") { const fv = VILLAGES.find(x => x.id === vid); if (fv) applyRepairDone(fv, r); }
+            });
+          }
+          recomputePriorities();
+        } catch (e) {}
+      }
+
+      function awardPoints(pts) {
+        stewardPoints += pts;
+        byId("ui-hero-points").textContent = lang === "th" ? "⭐ " + stewardPoints + " แต้มน้ำใจ" : "⭐ " + stewardPoints + " pts";
+      }
+
+      function recordOfflineAction() {
+        if (isOfflineSim) offlineQueueCount += 1;
+        const btn = byId("btn-offline-mode"), dot = byId("offline-queue-dot");
+        btn.classList.toggle("is-offline", isOfflineSim);
+        byId("ui-btn-offline").textContent = isOfflineSim ? (lang === "th" ? "ออฟไลน์" : "Offline") : (lang === "th" ? "ออนไลน์" : "Online");
+        dot.style.display = offlineQueueCount > 0 ? "inline-flex" : "none";
+        dot.textContent = String(offlineQueueCount);
+      }
+
+      function pushSms(vid, dir, text, unread) {
+        if (!smsByVillage[vid]) smsByVillage[vid] = [];
+        smsByVillage[vid].push({ dir, text, time: nowStr() });
+        if (unread) { unreadSmsCount += 1; const d = byId("sms-unread-dot"); d.style.display = "inline-flex"; d.textContent = String(unreadSmsCount); }
+      }
+
+      function updateTopBadges() {
+        let saved = 0;
+        Object.values(repairsByVillage).forEach(r => { if (r?.status === "completed" && r.savedDaily > 0) saved += r.savedDaily; });
+        const pill = byId("ui-water-saved");
+        if (saved > 0) {
+          pill.classList.add("is-visible");
+          pill.textContent = lang === "th" ? "💧 รักษาน้ำ " + Math.round(saved).toLocaleString() + " ล./วัน" : "💧 Saved " + Math.round(saved).toLocaleString() + " L/d";
+        } else pill.classList.remove("is-visible");
+
+        byId("ui-zero-badge").textContent = lang === "th" ? "📱 งบฮาร์ดแวร์ $0 พร้อมใช้ทันที" : "📱 $0 Day-1 Ready";
+        byId("ui-sim-badge").textContent = lang === "th" ? "🧪 ข้อมูลจำลอง" : "🧪 Sim Demo";
+        byId("ui-btn-tour").textContent = lang === "th" ? "โหมดกรรมการ" : "Judge Tour";
+        byId("ui-btn-hw").textContent = lang === "th" ? "ถ่ายมิเตอร์ $0" : "$0 Phone OCR";
+        byId("ui-btn-urgent").textContent = lang === "th" ? "ช่วยด่วน (#1)" : "Help #1";
+        byId("ui-btn-night").textContent = isNightMode ? (lang === "th" ? "กลางวัน" : "Daylight") : (lang === "th" ? "ส่องรั่วตี 2" : "2 AM Scan");
+        byId("ui-btn-impact").textContent = lang === "th" ? "หลักฐานอ้างอิง" : "Evidence & ROI";
+        byId("ui-btn-sms").textContent = lang === "th" ? "SMS/LINE" : "Channels";
+        byId("ui-btn-reset").textContent = isResetConfirming ? (lang === "th" ? "กดซ้ำยืนยัน" : "Confirm?") : (lang === "th" ? "รีเซ็ต" : "Reset");
+        byId("ui-lang-label").textContent = lang === "th" ? "EN" : "TH";
+        byId("ui-queue-title").textContent = lang === "th" ? "ลำดับความช่วยเหลือ" : "Priority Triage";
+        byId("ui-btn-add-village").textContent = lang === "th" ? "เพิ่มหมู่บ้าน" : "Add";
+        awardPoints(0);
+        recordOfflineAction();
+
+        const cAll = VILLAGES.length, cCrit = VILLAGES.filter(v => v.status==="critical").length, cWarn = VILLAGES.filter(v => v.status==="warning").length, cGood = VILLAGES.filter(v => v.status==="good").length;
+        byId("flt-all").textContent = (lang === "th" ? "ทั้งหมด (" : "All (") + cAll + ")";
+        byId("flt-crit").innerHTML = '<span class="dot dot-crit"></span>' + (lang === "th" ? "วิกฤต (" : "Crit (") + cCrit + ")";
+        byId("flt-warn").innerHTML = '<span class="dot dot-warn"></span>' + (lang === "th" ? "เฝ้าระวัง (" : "Watch (") + cWarn + ")";
+        byId("flt-good").innerHTML = '<span class="dot dot-good"></span>' + (lang === "th" ? "ปกติ (" : "Good (") + cGood + ")";
+      }
+
+      const pinElements = {};
+      function buildPins() {
+        const layer = byId("pins-layer");
+        layer.innerHTML = "";
+        Object.keys(pinElements).forEach(k => delete pinElements[k]);
+        VILLAGES.forEach(v => {
+          const pin = document.createElement("div");
+          pin.className = "village-pin";
+          pin.tabIndex = 0;
+          pin.addEventListener("click", (e) => { e.stopPropagation(); selectVillage(v.id, "all"); });
+          layer.appendChild(pin);
+          pinElements[v.id] = pin;
+        });
+        updatePins();
+      }
+
+      function updatePins() {
+        VILLAGES.forEach(v => {
+          const pin = pinElements[v.id];
+          if (!pin) return;
+          const c = v[lang], rep = repairsByVillage[v.id], fixing = rep?.status === "repairing";
+          pin.setAttribute("data-status", v.status);
+          pin.setAttribute("data-repairing", fixing ? "true" : "false");
+          pin.classList.toggle("is-selected", v.id === selectedVillageId);
+          pin.classList.toggle("is-dimmed", Boolean(selectedVillageId && v.id !== selectedVillageId));
+          pin.style.opacity = (activeFilter === "all" || v.status === activeFilter) ? "1" : "0.25";
+          pin.innerHTML = '<div class="pin-card"><span class="pin-rank">' + (fixing ? "👷" : (v.status==="good" ? "✓" : "#"+v.priority)) +
+            '</span><span class="pin-text"><span class="pin-name">' + esc(c.name) + '</span><span class="pin-sub">' +
+            esc(fixing ? (lang==="th" ? "🔧 กำลังซ่อม • เสร็จ ~"+rep.eta : "🔧 Fixing • ETA "+rep.eta) : c.pinSub) +
+            '</span></span></div><div class="pin-stem"></div>';
+        });
+      }
+
+      function renderQueue() {
+        const list = byId("village-list");
+        const arr = VILLAGES.filter(v => activeFilter === "all" || v.status === activeFilter);
+        list.innerHTML = arr.map(v => {
+          const c = v[lang], rep = repairsByVillage[v.id], fixing = rep?.status === "repairing";
+          return '<button type="button" class="village-card-btn' + (v.id===selectedVillageId ? " is-selected" : "") + '" data-vid="' + esc(v.id) + '">' +
+            '<div class="vcard-rank ' + v.status + '" style="' + (fixing ? "background:#0284c7;" : "") + '">' + (fixing ? "👷" : (v.status==="good" ? "✓" : "#"+v.priority)) + '</div>' +
+            '<div class="vcard-body"><div class="vcard-top"><span class="vcard-name">' + esc(c.name) + '</span><span class="vcard-tag ' + v.status + '">' + esc(fixing ? "~"+rep.eta : c.statusTag) + '</span></div>' +
+            '<p class="vcard-issue">' + esc(fixing && rep.note ? "🔧 "+rep.note : c.issueShort) + '</p>' +
+            '<div class="vcard-meta"><span>🏘️ ' + esc(c.households) + '</span><span>💧 ' + esc(c.nightFlow) + '</span></div></div></button>';
+        }).join("");
+        list.querySelectorAll(".village-card-btn").forEach(b => b.addEventListener("click", () => selectVillage(b.getAttribute("data-vid"), "all")));
+      }
+
+      function buildOcrHtml(v) {
+        const digits = String(v.meterReading || "0029415").padStart(7,"0").split("");
+        const fog = Boolean(v.foggy);
+        return '<div class="ocr-cam-card"><div class="ocr-cam-head"><span>📷 AI Meter OCR ' + (v.photoMode ? "• 📱 Smartphone Photo ($0)" : "• Meter Snapshot") + '</span><span style="color:' + (fog ? "#fbbf24" : "#4ade80") + ';">' + (v.ocrConf||99).toFixed(1) + '%</span></div>' +
+          '<div class="ocr-meter-drum' + (fog ? " is-foggy" : "") + '">' + digits.map((d,i) => '<span class="ocr-digit'+(i>=5?" frac":"")+'">'+esc(d)+'</span>').join("") + '<span style="font-size:11px;color:#94a3b8;margin-left:4px;">m³</span></div>' +
+          (fog ? '<button type="button" class="mini-link-btn" id="btn-clear-fog" style="background:#1e293b;color:#7dd3fc;border-color:#38bdf8;justify-content:center;">✨ เช็ดไอน้ำหน้าปัดมิเตอร์ (+20 แต้ม)</button>' : '') +
+          '<button type="button" class="mini-link-btn" id="btn-open-phone-ocr-inline" style="justify-content:center;">📸 อัปโหลดรูปมิเตอร์จากมือถือ ($0 Mode) →</button></div>';
+      }
+
+      function buildChartHtml(v, rep) {
+        const done = rep?.status === "completed", peak = rep ? rep.beforeFlowNum : flowNum(v.th.nightFlow), high = peak > 220;
+        const redP = "M 12,54 C 45,52 70,20 105,18 C 140,16 175,32 215,26 C 255,20 290,36 328,34";
+        const grnP = "M 12,68 C 45,70 70,71 105,70 C 140,56 175,46 215,50 C 255,44 290,64 328,68";
+        return '<div class="box-card"><div class="subsec-head"><span class="subsec-title">📈 ' + (lang==="th" ? "กราฟอัตราไหล 24 ชม. (เทียบช่วงตี 2)" : "24h Night-Flow Chart") + '</span><span style="font-size:10.5px;font-weight:800;color:' + (done||!high ? "#059669" : "#e11d48") + ';">' + (done ? "✓ Proof-of-Repair" : (high ? "⚠️ 02:00–04:00 Spike" : "✓ Normal")) + '</span></div>' +
+          '<svg viewBox="0 0 340 86" width="100%" height="78" style="background:var(--solid);border-radius:7px;border:1px solid var(--border);"><rect x="52" y="5" width="64" height="66" fill="rgba(56,189,248,.13)"/><text x="84" y="15" text-anchor="middle" font-size="8" font-weight="700" fill="#0284c7">02:00–04:00</text>' +
+          (high ? '<path d="'+redP+'" fill="none" stroke="'+(done?"#fda4af":"#e11d48")+'" stroke-width="2.4" '+(done?'stroke-dasharray="4 3"':'')+'/>' : '') +
+          ((done||!high) ? '<path d="'+grnP+'" fill="none" stroke="#10b981" stroke-width="2.6"/>' : '') +
+          '<text x="14" y="81" font-size="8" fill="#64748b">00:00</text><text x="84" y="81" text-anchor="middle" font-size="8" fill="#64748b">03:00</text><text x="326" y="81" text-anchor="end" font-size="8" fill="#64748b">24:00</text></svg></div>';
+      }
+
+      function renderInspector() {
+        const panel = byId("inspector-panel");
+        if (!selectedVillageId) { panel.classList.add("is-hidden"); return; }
+        const idx = VILLAGES.findIndex(x => x.id === selectedVillageId);
+        if (idx === -1) { panel.classList.add("is-hidden"); return; }
+        panel.classList.remove("is-hidden");
+
+        const v = VILLAGES[idx], c = v[lang], rep = repairsByVillage[v.id], fixing = rep?.status === "repairing", done = rep?.status === "completed";
+        const matchAg = agencies.filter(a => a.villageId === v.id || a.villageId === "all");
+        const vCmts = commentsByVillage[v.id] || [];
+        let body = "";
+
+        if (activeInspectorTab === "status") {
+          body = (fixing ? '<div class="repair-active-card"><div class="subsec-head"><strong style="font-size:12px;color:var(--brand);">👷 ช่างกำลังซ่อมบนแผนที่ 3D</strong><strong style="font-size:11px;">⏱️ '+esc(rep.eta)+'</strong></div>' +
+            (rep.note ? '<div class="obstacle-note">⚠️ '+esc(rep.note)+'</div>' : '') +
+            '<button type="button" class="mini-link-btn" id="btn-jump-rep">อัปเดตเวลา / ยืนยันซ่อมเสร็จ →</button></div>' : '') +
+            '<div class="quick-metrics"><div class="metric-tile"><div class="metric-label">อัตราไหลตี 2</div><div class="metric-val '+(v.status==="critical"?"is-crit":(v.status==="warning"?"is-warn":"is-good"))+'">'+esc(c.nightFlow)+'</div></div>' +
+            '<div class="metric-tile"><div class="metric-label">ครัวเรือน</div><div class="metric-val">'+esc(c.households)+'</div></div>' +
+            '<div class="metric-tile"><div class="metric-label">AI OCR</div><div class="metric-val">'+esc(c.clipStatus)+'</div></div></div>' +
+            '<div class="zone-chips">' +
+              [["all","🏡 ทั้งหมู่บ้าน"],["pipe","🔧 ท่อ & วาล์ว"],["meter","📷 มิเตอร์ OCR"],["tower","🗼 หอถังน้ำ"]].map(z => '<button type="button" class="zone-chip'+(activeZone===z[0]?" is-active":"")+'" data-zone="'+z[0]+'">'+z[1]+'</button>').join("") +
+            '</div>' +
+            (activeZone === "meter" ? buildOcrHtml(v) : '') +
+            '<div class="status-block broke"><h3 class="status-block-title">🔴 สิ่งที่พัง / ชำรุด (What Broke)</h3><ul class="status-list">'+c.broke.map(i=>"<li>"+esc(i)+"</li>").join("")+'</ul></div>' +
+            '<div class="status-block fix"><h3 class="status-block-title">🛠️ สิ่งที่ต้องซ่อม (What to Fix)</h3><ul class="status-list">'+c.fix.map(i=>"<li>"+esc(i)+"</li>").join("")+'</ul></div>' +
+            '<div class="status-block good"><h3 class="status-block-title">🟢 สิ่งที่ทำงานได้ดี (What\'s Good)</h3><ul class="status-list">'+c.good.map(i=>"<li>"+esc(i)+"</li>").join("")+'</ul></div>';
+        } else if (activeInspectorTab === "repair") {
+          const subBar = '<div class="sub-pill-bar"><button type="button" class="sub-pill-btn'+(activeRepairSubTab==="crew"?" is-active":"")+'" data-rsub="crew">🛠️ ช่างซ่อม 3D & กราฟ</button><button type="button" class="sub-pill-btn'+(activeRepairSubTab==="diag"?" is-active":"")+'" data-rsub="diag">📷 มิเตอร์ OCR & วาล์ว</button></div>';
+          if (activeRepairSubTab === "crew") {
+            let rBox = "";
+            if (fixing) {
+              rBox = '<div class="box-card"><div class="repair-active-card"><strong style="font-size:12px;color:var(--brand);">👷 อนิเมชั่นช่างกำลังซ่อมอยู่บนแผนที่ 3D!</strong><div style="font-size:11.5px;">ผู้ซ่อม: <strong>'+esc(rep.tech)+'</strong> • เสร็จราว: <strong>'+esc(rep.eta)+'</strong></div><div class="obstacle-note">📝 '+esc(rep.note || "กำลังดำเนินการตามแผน")+'</div></div>' +
+                '<form id="form-upd-rep" style="display:flex;flex-direction:column;gap:6px;" novalidate><div class="form-row-2"><input type="text" class="text-input" id="inp-upd-eta" value="'+esc(rep.eta)+'"><button type="submit" class="hud-btn">อัปเดตเวลา & SMS</button></div><textarea class="textarea-input" id="inp-upd-note" placeholder="เขียนอธิบายอุปสรรคหน้างานให้ชาวบ้านไม่สงสัย...">'+esc(rep.note||"")+'</textarea></form>' +
+                '<form id="form-done-rep" style="display:flex;flex-direction:column;gap:6px;padding-top:6px;border-top:1px solid var(--border);" novalidate>' +
+                  '<div class="wq-guard"><strong>🧪 เช็กลิสต์ความปลอดภัยน้ำหลังซ่อม:</strong><label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" checked> เปิดไล่น้ำขุ่นทิ้ง 5 นาที & ตรวจความใสปลายท่อแล้ว</label></div>' +
+                  '<div class="form-row-2" style="align-items:end;"><div class="field-group"><label class="field-label">ค่าอะไหล่จากกองทุน (฿)</label><input type="number" class="text-input" id="inp-rep-cost" value="1800"></div><button type="submit" class="hud-btn hud-btn-green" style="justify-content:center;">🎉 ยืนยันซ่อมเสร็จ</button></div></form></div>';
+            } else if (done) {
+              rBox = '<div class="box-card"><div class="repair-done-card"><strong>✅ ซ่อมเสร็จสมบูรณ์ • ผ่าน Proof-of-Repair</strong><div style="font-size:11.5px;">โดย '+esc(rep.tech)+' • อัตราไหลลดจาก '+rep.beforeFlowNum.toLocaleString()+' ➔ <strong>'+rep.afterFlowNum+' ล./ชม.</strong></div><div style="font-size:11.5px;">💧 ช่วยรักษาน้ำได้ ~'+Math.round(rep.savedDaily).toLocaleString()+' ลิตร/วัน</div></div></div>';
+            } else if (v.status === "good") {
+              rBox = '<div class="box-card"><div class="repair-done-card"><strong>✅ ระบบน้ำปกติ ไม่ต้องส่งช่างฉุกเฉิน</strong><button type="button" class="mini-link-btn" id="btn-sim-leak" style="align-self:flex-start;margin-top:4px;">🧪 จำลองเหตุท่อรั่วเพื่อทดสอบช่าง 3D</button></div></div>';
+            } else {
+              rBox = '<div class="box-card"><h3 class="subsec-title">👷 ส่งทีมช่างเข้าซ่อม (แสดงอนิเมชั่นช่าง 3D)</h3><form id="form-start-rep" style="display:flex;flex-direction:column;gap:6px;" novalidate><div class="form-row-2"><input type="text" class="text-input" id="inp-rep-tech" placeholder="ชื่อช่าง/ทีมซ่อม *" required><input type="text" class="text-input" id="inp-rep-eta" placeholder="เวลาเสร็จ เช่น 16:30 น. *" required></div><textarea class="textarea-input" id="inp-rep-note" placeholder="เขียนปัญหาหน้างานแจ้งชาวบ้านโปร่งใส..."></textarea><div class="form-error" id="err-start-rep">กรุณาระบุชื่อช่างและเวลาเสร็จคร่าวๆ</div><button type="submit" class="hud-btn hud-btn-primary" style="justify-content:center;">🛠️ เริ่มซ่อม (แสดงช่างบนแผนที่ 3D)</button></form></div>';
+            }
+            body = subBar + rBox + buildChartHtml(v, rep);
+          } else {
+            if (!stepValvesByVillage[v.id]) stepValvesByVillage[v.id] = { a:true, b:true, c:true };
+            const sv = stepValvesByVillage[v.id], base = flowNum(c.nightFlow), lk = Math.max(0, base - 105);
+            const wt = v.status === "warning" ? {a:.82,b:.1,c:.08} : {a:.1,b:.82,c:.08};
+            const curF = Math.round((sv.a||sv.b||sv.c ? 95 : 0) + (sv.a?lk*wt.a:0) + (sv.b?lk*wt.b:0) + (sv.c?lk*wt.c:0));
+            const found = lk > 80 && ((!sv.b && wt.b > .5) || (!sv.a && wt.a > .5));
+            body = subBar + buildOcrHtml(v) + '<div class="box-card"><div class="subsec-head"><h3 class="subsec-title">🧭 ไล่ปิดวาล์วหาจุดรั่ว (Step Test)</h3><strong style="color:var(--brand);font-size:12px;">'+curF.toLocaleString()+' ล./ชม.</strong></div>' +
+              (found ? '<div style="font-size:11.4px;font-weight:800;color:#059669;">🎯 พบโซนท่อรั่วแล้ว! อัตราไหลลดฮวบเมื่อปิดวาล์วโซนนี้</div>' : '') +
+              [["a","วาล์วโซน A (ทิศเหนือ)"],["b","วาล์วโซน B (คอสะพาน/ท่อหลัก)"],["c","วาล์วโซน C (ท้ายหมู่บ้าน)"]].map(z => '<div class="valve-row"><span>'+z[1]+'</span><button type="button" class="valve-btn '+(sv[z[0]]?"is-open":"is-shut")+'" data-valve="'+z[0]+'">'+(sv[z[0]]?"เปิดอยู่ (Open)":"ปิดกั้น (Shut)")+'</button></div>').join("") + '</div>';
+          }
+        } else if (activeInspectorTab === "fund") {
+          const led = (ledgerByVillage[v.id] || []).concat([{ lbl:"เก็บค่าน้ำประจำเดือนจากครัวเรือนชุมชน (จำลอง)", amt:"+฿4,200", plus:true }]);
+          body = '<div class="box-card"><div class="subsec-head"><span class="subsec-title">💰 กองทุนซ่อมบำรุงโปร่งใส</span><strong style="color:'+(v.fundPct<50?"#f43f5e":"#10b981")+';">'+v.fundPct+'%</strong></div><div class="fund-track"><div class="fund-fill" style="width:'+v.fundPct+'%;background:'+(v.fundPct<50?"#f43f5e":"#10b981")+';"></div></div><div style="font-size:11.8px;font-weight:700;">'+esc(c.fundText)+'</div><div class="help-note">'+esc(c.fundNote)+'</div>' +
+            '<span class="field-label" style="margin-top:3px;">🧾 สมุดบัญชีกองทุนโปร่งใส (Transparent Ledger):</span>' +
+            led.map(l => '<div class="ledger-row"><span>'+esc(l.lbl)+'</span><strong style="color:'+(l.plus?"#059669":"#e11d48")+';">'+esc(l.amt)+'</strong></div>').join("") + '</div>' +
+            '<div class="box-card"><div class="subsec-head"><h3 class="subsec-title">🏢 หน่วยงานสนับสนุน</h3><button type="button" class="mini-link-btn" id="btn-insp-ag">+ เพิ่มหน่วยงาน</button></div>' +
+            (matchAg.length ? matchAg.map(a => '<div class="ledger-row"><div><strong>'+esc(a.name)+'</strong><div style="font-size:11px;color:var(--muted);">'+esc(a.detail)+'</div></div><button type="button" class="del-mini-btn" data-del-ag="'+esc(a.id)+'">✕</button></div>').join("") : '<div class="empty-inline">ยังไม่มีหน่วยงานผูกกับหมู่บ้านนี้</div>') + '</div>';
+        } else {
+          body = '<div class="box-card"><h3 class="subsec-title">💬 ห้องพูดคุยสมาชิกหมู่บ้าน</h3>' +
+            (vCmts.length ? vCmts.map((m,mi) => '<div class="chat-row"><div class="chat-avatar role-'+esc(m.role)+'">'+esc(m.author.charAt(0))+'</div><div class="chat-bubble"><div class="subsec-head"><strong>'+esc(m.author)+'</strong><span><span style="font-size:10px;color:var(--muted);">'+esc(m.time)+'</span> <button type="button" class="del-mini-btn" data-del-cmt="'+mi+'">✕</button></span></div><div style="margin-top:2px;">'+esc(m.text)+'</div></div></div>').join("") : '<div class="empty-inline">ยังไม่มีข้อความพูดคุย เริ่มสนทนาด้านล่างได้เลย</div>') +
+            '<form id="form-cmt" style="display:flex;flex-direction:column;gap:6px;padding-top:6px;border-top:1px solid var(--border);" novalidate><div class="form-row-2"><input type="text" class="text-input" id="inp-cmt-name" placeholder="ชื่อผู้ส่ง *" required><select class="select-input" id="inp-cmt-role"><option value="resident">ชาวบ้าน</option><option value="caretaker">ผู้ดูแลประปา</option><option value="tech">ช่างชุมชน</option><option value="agency">รัฐ / อาสา</option></select></div><textarea class="textarea-input" id="inp-cmt-text" placeholder="พิมพ์พูดคุยหรืออัปเดตหน้างาน..." required></textarea><div class="form-error" id="err-cmt">กรุณากรอกชื่อและข้อความ</div><button type="submit" class="hud-btn hud-btn-primary" style="align-self:flex-end;">ส่งข้อความ</button></form></div>';
+        }
+
+        panel.innerHTML = '<div class="detail-head"><div><div class="detail-badge-row"><span class="priority-banner '+v.status+'">'+esc(c.rankLabel)+'</span>' +
+          (v.isCustom ? '<span class="custom-badge">📌 ข้อมูลผู้ใช้</span><button type="button" class="del-mini-btn" id="btn-del-v">🗑</button>' : '<span class="sim-badge">Simulated Demo</span>') +
+          '</div><h2 class="detail-title">'+esc(c.name)+'</h2><p class="detail-summary">'+esc(c.summary)+'</p></div><button type="button" class="close-btn" id="btn-close-insp">✕</button></div>' +
+          '<div class="inspector-tabs">' +
+            [["status","🔍 สถานะ",""],["repair","👷 ซ่อม/OCR",fixing?"🔧":""],["fund","💰 กองทุน",matchAg.length||""],["chat","💬 แชท",vCmts.length||""]].map(tb => '<button type="button" class="insp-tab'+(activeInspectorTab===tb[0]?" is-active":"")+'" data-itab="'+tb[0]+'">'+tb[1]+(tb[2]?'<span class="tab-dot">'+tb[2]+'</span>':'')+'</button>').join("") +
+          '</div><div class="inspector-scroll">'+body+'</div>' +
+          '<div class="inspector-footer"><button type="button" class="hud-btn" id="btn-prev-v">← ก่อนหน้า</button><span style="font-size:11px;font-weight:700;color:var(--muted);">'+(idx+1)+' / '+VILLAGES.length+'</span><button type="button" class="hud-btn" id="btn-next-v">ถัดไป →</button></div>';
+
+        byId("btn-close-insp").onclick = resetOverview;
+        byId("btn-prev-v").onclick = () => selectVillage(VILLAGES[(idx - 1 + VILLAGES.length) % VILLAGES.length].id, "all");
+        byId("btn-next-v").onclick = () => selectVillage(VILLAGES[(idx + 1) % VILLAGES.length].id, "all");
+        panel.querySelectorAll(".insp-tab").forEach(b => b.onclick = () => { activeInspectorTab = b.getAttribute("data-itab"); renderInspector(); });
+        panel.querySelectorAll(".sub-pill-btn").forEach(b => b.onclick = () => { activeRepairSubTab = b.getAttribute("data-rsub"); renderInspector(); });
+        panel.querySelectorAll(".zone-chip").forEach(b => b.onclick = () => selectVillage(v.id, b.getAttribute("data-zone")));
+
+        if (byId("btn-jump-rep")) byId("btn-jump-rep").onclick = () => { activeInspectorTab = "repair"; activeRepairSubTab = "crew"; selectVillage(v.id, "pipe"); };
+        if (byId("btn-open-phone-ocr-inline")) byId("btn-open-phone-ocr-inline").onclick = () => openHwModal("phone");
+        if (byId("btn-clear-fog")) byId("btn-clear-fog").onclick = () => { v.foggy = false; v.ocrConf = 99.3; v.th.clipStatus = v.en.clipStatus = "OCR 99.3%"; awardPoints(20); saveState(); renderInspector(); };
+        if (byId("btn-sim-leak")) byId("btn-sim-leak").onclick = () => { v.status = "warning"; v.th.statusTag = "จำลองท่อซึม"; v.th.nightFlow = "820 ล./ชม."; delete repairsByVillage[v.id]; recomputePriorities(); sync3DVisuals(); updateTopBadges(); renderQueue(); updatePins(); renderInspector(); };
+        if (byId("btn-del-v")) byId("btn-del-v").onclick = () => { VILLAGES = VILLAGES.filter(x => x.id !== v.id); recomputePriorities(); saveState(); rebuildVillages3D(); buildPins(); updateTopBadges(); resetOverview(); };
+        if (byId("btn-insp-ag")) byId("btn-insp-ag").onclick = () => { populateVillageSelects(v.id); renderAgenciesList(); byId("modal-agencies").classList.add("is-open"); };
+
+        panel.querySelectorAll("[data-valve]").forEach(b => b.onclick = () => { const k = b.getAttribute("data-valve"); stepValvesByVillage[v.id][k] = !stepValvesByVillage[v.id][k]; selectVillage(v.id, "pipe"); });
+        panel.querySelectorAll("[data-del-ag]").forEach(b => b.onclick = () => { agencies = agencies.filter(a => a.id !== b.getAttribute("data-del-ag")); saveState(); renderInspector(); });
+        panel.querySelectorAll("[data-del-cmt]").forEach(b => b.onclick = () => { commentsByVillage[v.id].splice(parseInt(b.getAttribute("data-del-cmt"),10), 1); saveState(); renderInspector(); });
+
+        if (byId("form-start-rep")) byId("form-start-rep").onsubmit = (e) => {
+          e.preventDefault();
+          const tech = byId("inp-rep-tech").value.trim(), eta = byId("inp-rep-eta").value.trim(), note = byId("inp-rep-note").value.trim();
+          if (!tech || !eta) { byId("err-start-rep").classList.add("is-visible"); return; }
+          repairsByVillage[v.id] = { status:"repairing", tech, eta, note, beforeFlowNum:flowNum(v.th.nightFlow), afterFlowNum:105, savedDaily:0 };
+          pushSms(v.id, "in", "[NamJai] ช่าง " + tech + " กำลังซ่อมประปา " + v.th.name + " เสร็จราว " + eta + (note ? " ("+note+")" : ""), true);
+          if (!commentsByVillage[v.id]) commentsByVillage[v.id] = [];
+          commentsByVillage[v.id].push({ author:tech, role:"tech", text:"🛠️ เริ่มซ่อมหน้างานแล้วครับ เสร็จราว " + eta + (note ? "\n⚠️ "+note : ""), time:nowStr() });
+          awardPoints(25); recordOfflineAction(); saveState(); sync3DVisuals(); selectVillage(v.id, "pipe");
+        };
+
+        if (byId("form-upd-rep")) byId("form-upd-rep").onsubmit = (e) => {
+          e.preventDefault();
+          rep.eta = byId("inp-upd-eta").value.trim() || rep.eta;
+          rep.note = byId("inp-upd-note").value.trim();
+          pushSms(v.id, "in", "[อัปเดตซ่อม " + v.th.name + "] เวลาเสร็จใหม่ " + rep.eta + (rep.note ? " • "+rep.note : ""), true);
+          recordOfflineAction(); saveState(); renderQueue(); updatePins(); renderInspector();
+        };
+
+        if (byId("form-done-rep")) byId("form-done-rep").onsubmit = (e) => {
+          e.preventDefault();
+          const cost = Math.max(0, parseInt(byId("inp-rep-cost").value,10) || 0), bef = rep.beforeFlowNum || flowNum(v.th.nightFlow);
+          rep.status = "completed"; rep.afterFlowNum = 105; rep.savedDaily = Math.max(0, (bef - 105) * 24); rep.finishedAt = nowStr();
+          if (!ledgerByVillage[v.id]) ledgerByVillage[v.id] = [];
+          ledgerByVillage[v.id].unshift({ lbl:"เบิกค่าอะไหล่ซ่อมท่อ (Proof-of-Repair " + rep.finishedAt + ")", amt:"-฿" + cost.toLocaleString(), plus:false });
+          applyRepairDone(v, rep); recomputePriorities();
+          pushSms(v.id, "in", "[ซ่อมเสร็จแล้ว!] " + v.th.name + " น้ำไหลปกติ อัตราไหลลดเหลือ 105 ล./ชม.", true);
+          awardPoints(50); recordOfflineAction(); saveState(); sync3DVisuals(); updateTopBadges(); renderQueue(); updatePins(); renderInspector();
+          byId("repair-alert-title").textContent = "🔔 ซ่อมประปาเสร็จสิ้น! (" + c.name + ")";
+          byId("repair-alert-desc").textContent = "ผ่าน Proof-of-Repair • อัตราไหลลดจาก " + bef.toLocaleString() + " เหลือ 105 ล./ชม. เปิดจ่ายน้ำปลอดภัย!";
+          byId("repair-alert-banner").classList.add("is-open");
+        };
+
+        if (byId("form-cmt")) byId("form-cmt").onsubmit = (e) => {
+          e.preventDefault();
+          const nm = byId("inp-cmt-name").value.trim(), tx = byId("inp-cmt-text").value.trim(), rl = byId("inp-cmt-role").value;
+          if (!nm || !tx) { byId("err-cmt").classList.add("is-visible"); return; }
+          if (!commentsByVillage[v.id]) commentsByVillage[v.id] = [];
+          commentsByVillage[v.id].push({ author:nm, role:rl, text:tx, time:nowStr() });
+          awardPoints(10); recordOfflineAction(); saveState(); renderInspector();
+        };
+      }
+
+      /* =========================================================================
+       * THREE.JS 3D VALLEY DIORAMA + ANIMATED 3D REPAIR CREWS
+       * ========================================================================= */
+      let threeReady = false, scene, camera, renderer, raycaster, pointerNDC, worldRoot;
+      let hemiLight, sunLight, turfMatRef, spotlightRing;
+      let clickableMeshes = [], village3DRefs = {}, sprayParticles = [], leakRipples = [], pipePulses = [], pipeMats = [], windowMaterials = [], clipLedMeshes = [], cloudGroups = [], repairCrewAnims = [];
+      const cam = { tx:0, ty:0, tz:2, gx:0, gy:0, gz:2, r:66, gr:66, th:0.36, gth:0.36, ph:0.91, gph:0.91, offX:0 };
+
+      function selectVillage(vid, zone) {
+        selectedVillageId = vid; activeZone = zone || "all";
+        const v = VILLAGES.find(x => x.id === vid);
+        if (v) {
+          let ox = 0, oz = 0, rad = 26;
+          if (activeZone === "pipe") { ox = 4.2; oz = -3.8; rad = 18; }
+          else if (activeZone === "meter") { ox = -3.6; oz = 3.4; rad = 17.5; }
+          else if (activeZone === "tower") { ox = 3.8; oz = 2.6; rad = 18.5; }
+          cam.gx = v.pos.x + ox; cam.gy = window.innerWidth <= 960 ? -1.8 : 1.0; cam.gz = v.pos.z + oz; cam.gr = rad; cam.gph = 0.83;
+          if (spotlightRing) { spotlightRing.visible = true; spotlightRing.position.set(v.pos.x + ox, 0.38, v.pos.z + oz); spotlightRing.scale.setScalar(activeZone === "all" ? 1.9 : 0.74); }
+        }
+        renderQueue(); updatePins(); renderInspector(); sync3DVisuals();
+      }
+
+      function resetOverview() {
+        selectedVillageId = null; activeZone = "all";
+        cam.gx = 0; cam.gy = 0; cam.gz = 2; cam.gr = 66; cam.gph = 0.91;
+        if (spotlightRing) spotlightRing.visible = false;
+        renderQueue(); updatePins(); renderInspector(); sync3DVisuals();
+      }
+
+      function buildCrew3D(vid) {
+        const g = new THREE.Group();
+        g.position.set(4.2, 0.2, -3.8);
+        g.visible = repairsByVillage[vid]?.status === "repairing";
+        const ringGeo = new THREE.RingGeometry(1.3, 1.6, 24); ringGeo.rotateX(-Math.PI/2);
+        const zoneRing = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color:0xfbbf24, side:THREE.DoubleSide, transparent:true, opacity:.85 }));
+        zoneRing.position.y = 0.08; g.add(zoneRing);
+        const coneMat = new THREE.MeshStandardMaterial({ color:0xf97316 });
+        [[-1.2,0.85],[1.2,0.8]].forEach(p => { const c = new THREE.Mesh(new THREE.ConeGeometry(0.22,0.6,10), coneMat); c.position.set(p[0],0.3,p[1]); g.add(c); });
+
+        const w1 = new THREE.Group(); w1.position.set(-0.8,0,-0.3); w1.rotation.y = 1.1;
+        const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.22,0.52,8), new THREE.MeshStandardMaterial({ color:0x1e3a8a })); legs.position.y = 0.26; w1.add(legs);
+        const bodyPiv = new THREE.Group(); bodyPiv.position.y = 0.52;
+        const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.26,0.24,0.65,10), coneMat); torso.position.y = 0.32; bodyPiv.add(torso);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.22,10,10), new THREE.MeshStandardMaterial({ color:0xfde68a })); head.position.y = 0.8; bodyPiv.add(head);
+        const hat = new THREE.Mesh(new THREE.SphereGeometry(0.25,10,8,0,Math.PI*2,0,Math.PI*.58), new THREE.MeshStandardMaterial({ color:0xfacc15 })); hat.position.y = 0.84; bodyPiv.add(hat);
+        const armPiv = new THREE.Group(); armPiv.position.set(0.26,0.52,0.1);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.15,0.15,0.54), coneMat); arm.position.z = 0.22; armPiv.add(arm);
+        const wrench = new THREE.Mesh(new THREE.BoxGeometry(0.09,0.13,0.58), new THREE.MeshStandardMaterial({ color:0xe2e8f0, metalness:.7 })); wrench.position.set(0,0.05,0.58); armPiv.add(wrench);
+        bodyPiv.add(armPiv); w1.add(bodyPiv); g.add(w1);
+
+        const w2 = new THREE.Group(); w2.position.set(0.9,0,-0.5); w2.rotation.y = -0.85;
+        const t2 = new THREE.Mesh(new THREE.CylinderGeometry(0.24,0.22,1.0,10), new THREE.MeshStandardMaterial({ color:0x0284c7 })); t2.position.y = 0.5; w2.add(t2);
+        const h2 = new THREE.Mesh(new THREE.SphereGeometry(0.22,10,10), new THREE.MeshStandardMaterial({ color:0xfde68a })); h2.position.y = 1.15; w2.add(h2);
+        const ht2 = new THREE.Mesh(new THREE.SphereGeometry(0.25,10,8,0,Math.PI*2,0,Math.PI*.58), new THREE.MeshStandardMaterial({ color:0xfacc15 })); ht2.position.y = 1.19; w2.add(ht2);
+        g.add(w2);
+
+        const sparks = [0,.25,.5,.75].map(ph => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.1,6,6), new THREE.MeshBasicMaterial({ color:0xfef08a })); g.add(m); return { mesh:m, phase:ph }; });
+        repairCrewAnims.push({ crewGroup:g, bodyPiv, armPiv, w2, zoneRing, sparks });
+        return g;
+      }
+
+      function rebuildVillages3D() {
+        if (!threeReady) return;
+        if (worldRoot) scene.remove(worldRoot);
+        worldRoot = new THREE.Group(); scene.add(worldRoot);
+        clickableMeshes = []; village3DRefs = {}; sprayParticles = []; leakRipples = []; pipePulses = []; pipeMats = []; windowMaterials = []; clipLedMeshes = []; repairCrewAnims = [];
+
+        VILLAGES.forEach(v => {
+          const g = new THREE.Group(); g.position.set(v.pos.x, 0.22, v.pos.z);
+          const sHex = v.status==="critical" ? 0xf43f5e : (v.status==="warning" ? 0xf59e0b : 0x10b981);
+          const padMat = new THREE.MeshStandardMaterial({ color:0xe6f4d7, emissive:sHex, emissiveIntensity:.06, roughness:.86 });
+          const pad = new THREE.Mesh(new THREE.CylinderGeometry(7.4,7.8,0.36,32), padMat); pad.receiveShadow = true; pad.userData.villageId = v.id; g.add(pad); clickableMeshes.push(pad);
+
+          const rGeo = new THREE.RingGeometry(7.65,8.25,40); rGeo.rotateX(-Math.PI/2);
+          const ringMesh = new THREE.Mesh(rGeo, new THREE.MeshBasicMaterial({ color:sHex, side:THREE.DoubleSide, transparent:true, opacity:.78 })); ringMesh.position.y = 0.22; g.add(ringMesh);
+
+          // Water Tower + Solar
+          const tw = new THREE.Group(); tw.position.set(3.8,0.18,2.6);
+          const legMat = new THREE.MeshStandardMaterial({ color:0x64748b });
+          [[-.7,-.7],[.7,-.7],[-.7,.7],[.7,.7]].forEach(lp => { const l = new THREE.Mesh(new THREE.CylinderGeometry(.11,.15,3.7,6), legMat); l.position.set(lp[0],1.85,lp[1]); tw.add(l); });
+          const tank = new THREE.Mesh(new THREE.CylinderGeometry(1.35,1.25,2.1,18), new THREE.MeshStandardMaterial({ color:0x0284c7, roughness:.32 })); tank.position.y = 4.35; tank.castShadow = true; tank.userData.villageId = v.id; clickableMeshes.push(tank); tw.add(tank);
+          const cap = new THREE.Mesh(new THREE.ConeGeometry(1.5,0.8,18), new THREE.MeshStandardMaterial({ color:0xf1f5f9 })); cap.position.y = 5.8; tw.add(cap);
+          const sol = new THREE.Mesh(new THREE.BoxGeometry(1.2,.08,.85), new THREE.MeshStandardMaterial({ color:0x1e3a8a })); sol.position.set(-1.5,0.95,0.8); sol.rotation.x = .42; tw.add(sol);
+          g.add(tw);
+
+          // Main Meter + Clip
+          const mt = new THREE.Group(); mt.position.set(-3.6,0.18,3.4);
+          const post = new THREE.Mesh(new THREE.BoxGeometry(.9,1.2,.9), new THREE.MeshStandardMaterial({ color:0xcbd5e1 })); post.position.y = .6; post.userData.villageId = v.id; clickableMeshes.push(post); mt.add(post);
+          const hood = new THREE.Mesh(new THREE.CylinderGeometry(.45,.58,.75,12), new THREE.MeshStandardMaterial({ color:0x0ea5e9 })); hood.position.y = 1.56; hood.userData.villageId = v.id; clickableMeshes.push(hood); mt.add(hood);
+          const led = new THREE.Mesh(new THREE.SphereGeometry(.2,8,8), new THREE.MeshBasicMaterial({ color:0x38bdf8 })); led.position.y = 2.1; mt.add(led); clipLedMeshes.push({ mesh:led, phase:Math.random()*6 });
+          g.add(mt);
+
+          const valveMat = new THREE.MeshStandardMaterial({ color:sHex });
+          const valve = new THREE.Mesh(new THREE.CylinderGeometry(.66,.66,.7,12), valveMat); valve.position.set(4.2,0.52,-3.8); valve.userData.villageId = v.id; clickableMeshes.push(valve); g.add(valve);
+          const crewGroup = buildCrew3D(v.id); g.add(crewGroup);
+
+          const offs = [[-2.7,-2.3,.2],[.35,-2.6,-.14],[-3.2,.45,.5],[-.15,.45,0],[1.6,-.45,-.38],[-1.1,2.8,.28]];
+          const stMat = new THREE.MeshStandardMaterial({ color:0x7c583b }), wlMat = new THREE.MeshStandardMaterial({ color:0xfffdf7 }), rfMat = new THREE.MeshStandardMaterial({ color:v.roofColor, flatShading:true });
+          const wnMat = new THREE.MeshStandardMaterial({ color:0xbae6fd }); windowMaterials.push(wnMat);
+          for (let i = 0; i < v.houseCount; i++) {
+            const ho = offs[i % offs.length], hs = new THREE.Group(), w = 1.65 + (i%2)*.3, h = 1.2 + (i%3)*.15;
+            const dk = new THREE.Mesh(new THREE.BoxGeometry(w*1.04,.4,1.6), stMat); dk.position.y = .2; hs.add(dk);
+            const wl = new THREE.Mesh(new THREE.BoxGeometry(w,h,1.5), wlMat); wl.position.y = .4 + h*.5; wl.castShadow = true; wl.userData.villageId = v.id; clickableMeshes.push(wl); hs.add(wl);
+            const wn = new THREE.Mesh(new THREE.BoxGeometry(w*.45,.4,1.54), wnMat); wn.position.y = .4 + h*.54; hs.add(wn);
+            const rfGeo = new THREE.ConeGeometry(w*.85,1.1,4); rfGeo.rotateY(Math.PI/4);
+            const rf = new THREE.Mesh(rfGeo, rfMat); rf.position.y = .4 + h + .52; rf.castShadow = true; rf.userData.villageId = v.id; clickableMeshes.push(rf); hs.add(rf);
+            hs.position.set(ho[0],.18,ho[1]); hs.rotation.y = ho[2]; g.add(hs);
+          }
+          worldRoot.add(g);
+          village3DRefs[v.id] = { padMat, ringMesh, valveMat, crewGroup, anchor:new THREE.Vector3(v.pos.x, 7.1, v.pos.z) };
+
+          // Supply Pipe
+          const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0,.56,-20), new THREE.Vector3(v.pos.x*.52,.52,(v.pos.z-20)*.5), new THREE.Vector3(v.pos.x+4.2,.52,v.pos.z-3.8)]);
+          const pCol = v.status==="critical" ? 0xf43f5e : (v.status==="warning" ? 0xf59e0b : 0x0ea5e9);
+          const pMat = new THREE.MeshStandardMaterial({ color:pCol, roughness:.32, emissive:pCol, emissiveIntensity:.15 });
+          worldRoot.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 28, .28, 8, false), pMat));
+          pipeMats.push({ vid:v.id, mat:pMat, status:v.status });
+
+          const pm = new THREE.Mesh(new THREE.SphereGeometry(.42,8,8), new THREE.MeshBasicMaterial({ color:0x7dd3fc })); worldRoot.add(pm);
+          pipePulses.push({ vid:v.id, mesh:pm, curve, t:Math.random(), speed:.005 });
+
+          const end = new THREE.Vector3(v.pos.x+4.2,.52,v.pos.z-3.8);
+          const rpGeo = new THREE.RingGeometry(.5,.85,20); rpGeo.rotateX(-Math.PI/2);
+          const rpMat = new THREE.MeshBasicMaterial({ color:pCol, side:THREE.DoubleSide, transparent:true, opacity:.75 });
+          const rpMesh = new THREE.Mesh(rpGeo, rpMat); rpMesh.position.set(end.x,.32,end.z); worldRoot.add(rpMesh);
+          leakRipples.push({ vid:v.id, active:v.status!=="good", mesh:rpMesh, mat:rpMat, phase:Math.random() });
+
+          if (v.status === "critical") {
+            for (let k = 0; k < (v.priority===1 ? 9 : 4); k++) {
+              const sp = new THREE.Mesh(new THREE.SphereGeometry(.24,6,6), new THREE.MeshBasicMaterial({ color:0x7dd3fc })); worldRoot.add(sp);
+              sprayParticles.push({ vid:v.id, active:true, mesh:sp, origin:end, phase:k/9, height:v.priority===1?3.8:1.8, spread:v.priority===1?1.5:.8 });
+            }
+          }
+        });
+        sync3DVisuals();
+      }
+
+      function sync3DVisuals() {
+        if (!threeReady) return;
+        scene.fog.color.setHex(isNightMode ? 0x12243b : 0xd9f0f4);
+        hemiLight.color.setHex(isNightMode ? 0x4f7cac : 0xffffff);
+        hemiLight.intensity = isNightMode ? 0.52 : 0.9;
+        sunLight.intensity = isNightMode ? 0.42 : 0.95;
+        if (turfMatRef) turfMatRef.color.setHex(isNightMode ? 0x2f5d50 : 0x9fd89b);
+        windowMaterials.forEach(wm => { wm.color.setHex(isNightMode ? 0xfef08a : 0xbae6fd); wm.emissive.setHex(isNightMode ? 0xf59e0b : 0x000000); wm.emissiveIntensity = isNightMode ? .9 : 0; });
+        cloudGroups.forEach(cg => cg.visible = !isNightMode);
+
+        VILLAGES.forEach(v => {
+          const ref = village3DRefs[v.id], fixing = repairsByVillage[v.id]?.status === "repairing", ok = v.status === "good";
+          const hex = ok ? 0x10b981 : (v.status === "warning" ? 0xf59e0b : 0xf43f5e);
+          if (ref) {
+            ref.padMat.emissive.setHex(fixing ? 0x0284c7 : hex);
+            ref.padMat.emissiveIntensity = v.id === selectedVillageId ? .38 : (isNightMode || fixing ? .18 : .06);
+            ref.ringMesh.material.color.setHex(fixing ? 0x38bdf8 : hex);
+            ref.ringMesh.visible = v.id === selectedVillageId || v.status === "critical" || fixing || isNightMode;
+            ref.valveMat.color.setHex(hex);
+            ref.crewGroup.visible = Boolean(fixing);
+          }
+          pipeMats.forEach(pm => { if (pm.vid === v.id) { const c = ok ? 0x0ea5e9 : hex; pm.mat.color.setHex(c); pm.mat.emissive.setHex(c); pm.mat.emissiveIntensity = isNightMode ? .8 : .2; } });
+          sprayParticles.forEach(sp => { if (sp.vid === v.id) { sp.active = !ok; sp.mesh.visible = !ok; } });
+          leakRipples.forEach(lr => { if (lr.vid === v.id) { lr.active = !ok; lr.mesh.visible = !ok; } });
+        });
+      }
+
+      function init3D() {
+        if (typeof window.THREE === "undefined") { byId("fallback-map").style.display = "flex"; return; }
+        try {
+          renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+          renderer.setSize(window.innerWidth, window.innerHeight);
+          renderer.shadowMap.enabled = true;
+          byId("map-canvas-wrap").appendChild(renderer.domElement);
+        } catch (e) { byId("fallback-map").style.display = "flex"; return; }
+
+        threeReady = true;
+        scene = new THREE.Scene(); scene.fog = new THREE.FogExp2(0xd9f0f4, 0.0056);
+        camera = new THREE.PerspectiveCamera(39, window.innerWidth/window.innerHeight, 1, 320);
+        raycaster = new THREE.Raycaster(); pointerNDC = new THREE.Vector2();
+        hemiLight = new THREE.HemisphereLight(0xffffff, 0x88b892, 0.9); hemiLight.position.set(0,60,0); scene.add(hemiLight);
+        sunLight = new THREE.DirectionalLight(0xfff7e6, 0.95); sunLight.position.set(40,60,34); sunLight.castShadow = true; scene.add(sunLight);
+
+        const base1 = new THREE.Mesh(new THREE.CylinderGeometry(45.2,41.5,3.6,48), new THREE.MeshStandardMaterial({ color:0x8d6e53 })); base1.position.y = -3.4; scene.add(base1);
+        const base2 = new THREE.Mesh(new THREE.CylinderGeometry(47.6,45.4,2.0,48), new THREE.MeshStandardMaterial({ color:0xc8b294 })); base2.position.y = -1.2; scene.add(base2);
+        turfMatRef = new THREE.MeshStandardMaterial({ color:0x9fd89b, roughness:.84 });
+        const turf = new THREE.Mesh(new THREE.CylinderGeometry(46.8,47.4,1.0,48), turfMatRef); turf.position.y = -0.25; turf.receiveShadow = true; scene.add(turf);
+
+        [[0,-29,13.5,8.2,0x76c485],[-15,-26.5,10,5.8,0x84cc91],[16,-25.5,10.5,6.4,0x7ec88b],[-35,-3,8,3.8,0x8fd29b],[35.5,3,8.5,4,0x8fd29b]].forEach(h => {
+          const m = new THREE.Mesh(new THREE.ConeGeometry(h[2],h[3],14), new THREE.MeshStandardMaterial({ color:h[4], flatShading:true })); m.position.set(h[0],h[3]*.45,h[1]); scene.add(m);
+        });
+        [[-32,-16],[-27,-21],[-10,-19],[9,-19],[28,-18],[33,-10],[-36,8],[-15,3],[6,4],[12,-3],[33,12],[-18,26],[2,26],[14,25],[-6,-6],[29,23],[-33,22],[0,12]].forEach((p,i) => {
+          const tr = new THREE.Group(), tk = new THREE.Mesh(new THREE.CylinderGeometry(.16,.24,1.1,6), new THREE.MeshStandardMaterial({ color:0x7f5539 })); tk.position.y = .55; tr.add(tk);
+          const cr = new THREE.Mesh(new THREE.ConeGeometry(1.05,2.5,7), new THREE.MeshStandardMaterial({ color:i%2?0x52b788:0x40916c, flatShading:true })); cr.position.y = 1.95; tr.add(cr);
+          tr.position.set(p[0],.18,p[1]); tr.scale.setScalar(.85 + (i%3)*.15); scene.add(tr);
+        });
+        [[-24,18,-18,.012],[16,20,-8,.009],[-6,19,18,.011]].forEach(cs => {
+          const cg = new THREE.Group(), cm = new THREE.MeshStandardMaterial({ color:0xffffff, transparent:true, opacity:.84 });
+          cg.add(new THREE.Mesh(new THREE.SphereGeometry(2,8,8), cm)); cg.position.set(cs[0],cs[1],cs[2]); cg.scale.set(1.3,.6,1); cg.userData.speed = cs[3]; scene.add(cg); cloudGroups.push(cg);
+        });
+
+        const res = new THREE.Mesh(new THREE.CylinderGeometry(5.4,6.1,2,24), new THREE.MeshStandardMaterial({ color:0xdbe4ee })); res.position.set(0,1,-22); scene.add(res);
+        const rWat = new THREE.Mesh(new THREE.CylinderGeometry(4.8,4.8,.35,24), new THREE.MeshStandardMaterial({ color:0x38bdf8 })); rWat.position.set(0,1.95,-22); scene.add(rWat);
+        const rCurve = new THREE.CatmullRomCurve3([new THREE.Vector3(-42,.2,-18),new THREE.Vector3(-16,.2,-6),new THREE.Vector3(2,.2,1),new THREE.Vector3(18,.2,6),new THREE.Vector3(42,.2,16)]);
+        const rGeo = new THREE.TubeGeometry(rCurve, 48, 1.65, 8, false); rGeo.scale(1,.13,1);
+        const rMesh = new THREE.Mesh(rGeo, new THREE.MeshStandardMaterial({ color:0x38bdf8, transparent:true, opacity:.9 })); rMesh.position.y = .24; scene.add(rMesh);
+
+        const spGeo = new THREE.RingGeometry(2.6,3.3,36); spGeo.rotateX(-Math.PI/2);
+        spotlightRing = new THREE.Mesh(spGeo, new THREE.MeshBasicMaterial({ color:0x38bdf8, side:THREE.DoubleSide, transparent:true, opacity:.9 })); spotlightRing.visible = false; scene.add(spotlightRing);
+
+        rebuildVillages3D();
+
+        const wrap = byId("map-canvas-wrap");
+        let drag = false, mode = "pan", dx0 = 0, dy0 = 0, lx = 0, ly = 0, dist = 0;
+        wrap.oncontextmenu = e => e.preventDefault();
+        wrap.onpointerdown = e => { drag = true; dx0 = lx = e.clientX; dy0 = ly = e.clientY; dist = 0; mode = (e.button===2 || e.shiftKey) ? "rotate" : "pan"; wrap.setPointerCapture(e.pointerId); };
+        wrap.onpointermove = e => {
+          if (!drag) return;
+          const mx = e.clientX - lx, my = e.clientY - ly; lx = e.clientX; ly = e.clientY; dist += Math.hypot(mx, my);
+          if (mode === "rotate") { cam.gth -= mx * .0075; cam.gph = Math.max(.48, Math.min(1.18, cam.gph - my * .006)); }
+          else { const sc = cam.r * .00145, s = Math.sin(cam.th), c = Math.cos(cam.th); cam.gx = Math.max(-35, Math.min(35, cam.gx - (mx*c + my*s)*sc)); cam.gz = Math.max(-29, Math.min(29, cam.gz - (-mx*s + my*c)*sc)); }
+        };
+        wrap.onpointerup = e => {
+          if (!drag) return; drag = false;
+          if (dist < 6 && e.button === 0) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            pointerNDC.set(((dx0 - rect.left)/rect.width)*2 - 1, -((dy0 - rect.top)/rect.height)*2 + 1);
+            raycaster.setFromCamera(pointerNDC, camera);
+            const hits = raycaster.intersectObjects(clickableMeshes, false);
+            if (hits.length && hits[0].object.userData.villageId) selectVillage(hits[0].object.userData.villageId, "all");
+          }
+        };
+        wrap.addEventListener("wheel", e => { e.preventDefault(); cam.gr = Math.max(15, Math.min(88, cam.gr + e.deltaY * .04)); }, { passive:false });
+        window.addEventListener("resize", () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+
+        const proj = new THREE.Vector3(); let tick = 0;
+        (function loop() {
+          requestAnimationFrame(loop); tick += .016;
+          cam.tx += (cam.gx - cam.tx)*.095; cam.ty += (cam.gy - cam.ty)*.095; cam.tz += (cam.gz - cam.tz)*.095;
+          cam.r += (cam.gr - cam.r)*.095; cam.th += (cam.gth - cam.th)*.095; cam.ph += (cam.gph - cam.ph)*.095;
+
+          const fw = window.innerWidth, fh = window.innerHeight;
+          const gOff = fw > 960 ? fw*.5 - (((isQueueCollapsed?0:304) + (fw - (selectedVillageId?398:0)))*.5) : 0;
+          cam.offX += (gOff - cam.offX)*.12;
+          if (Math.abs(cam.offX) > .5) camera.setViewOffset(fw, fh, cam.offX, 0, fw, fh); else camera.clearViewOffset();
+
+          camera.position.set(cam.tx + cam.r*Math.sin(cam.ph)*Math.sin(cam.th), cam.ty + cam.r*Math.cos(cam.ph), cam.tz + cam.r*Math.sin(cam.ph)*Math.cos(cam.th));
+          camera.lookAt(cam.tx, cam.ty, cam.tz);
+
+          cloudGroups.forEach(cg => { if (cg.visible) { cg.position.x += cg.userData.speed; if (cg.position.x > 42) cg.position.x = -42; } });
+          pipePulses.forEach(pp => { pp.t = (pp.t + pp.speed)%1; pp.mesh.position.copy(pp.curve.getPointAt(pp.t)); });
+          sprayParticles.forEach((sp,i) => { if (!sp.active) return; const p = (sp.phase + tick*.9)%1, a = i*1.9; sp.mesh.position.set(sp.origin.x + Math.cos(a)*p*sp.spread, sp.origin.y + Math.sin(p*Math.PI)*sp.height, sp.origin.z + Math.sin(a)*p*sp.spread); });
+          leakRipples.forEach(lr => { if (!lr.active) return; const p = (lr.phase + tick*.55)%1; lr.mesh.scale.setScalar(.8 + p*2.5); lr.mat.opacity = (1-p)*.8; });
+          clipLedMeshes.forEach(l => l.mesh.scale.setScalar(isNightMode ? .9 + .5*Math.sin(tick*4.2+l.phase) : .7));
+          repairCrewAnims.forEach(rc => {
+            if (!rc.crewGroup.visible) return;
+            const sw = Math.sin(tick * 8.5); rc.armPiv.rotation.x = -.35 + sw*.65; rc.bodyPiv.rotation.x = .28 + Math.abs(sw)*.14; rc.w2.rotation.y = -.85 + Math.sin(tick*2.4)*.22; rc.zoneRing.rotation.z = tick*.8;
+            rc.sparks.forEach((s,i) => { const p = (s.phase + tick*1.8)%1, a = i*1.6+tick; s.mesh.position.set(Math.cos(a)*p*.75, .55 + Math.sin(p*Math.PI)*.9, Math.sin(a)*p*.75); });
+          });
+
+          renderer.render(scene, camera);
+          VILLAGES.forEach(v => {
+            const ref = village3DRefs[v.id], pin = pinElements[v.id]; if (!ref || !pin) return;
+            proj.copy(ref.anchor).project(camera);
+            if (proj.z > 1) { pin.style.display = "none"; return; }
+            pin.style.display = "flex";
+            pin.style.transform = "translate(" + ((proj.x*.5+.5)*fw).toFixed(1) + "px," + ((-proj.y*.5+.5)*fh).toFixed(1) + "px) translate(-50%,-100%)";
+          });
+        })();
+      }
+
+      /* =========================================================================
+       * MODALS: ZERO-HARDWARE PHONE OCR ($0), BENCH LAB, BLUEPRINT, EVIDENCE, SMS & JUDGE TOUR
+       * ========================================================================= */
+      function populateVillageSelects(pref) {
+        const opts = VILLAGES.map(v => '<option value="'+esc(v.id)+'">'+esc(v[lang].name)+'</option>').join("");
+        byId("inp-ag-village").innerHTML = '<option value="all">ทุกหมู่บ้านในหุบเขา</option>' + opts;
+        byId("sel-sms-village").innerHTML = opts;
+        byId("sel-ph-village").innerHTML = opts;
+        if (pref && VILLAGES.some(v => v.id === pref)) { byId("inp-ag-village").value = pref; byId("sel-sms-village").value = pref; byId("sel-ph-village").value = pref; }
+      }
+
+      function renderAgenciesList() {
+        byId("agencies-modal-list").innerHTML = agencies.length
+          ? agencies.map(a => '<div class="ledger-row"><div><strong>'+esc(a.name)+'</strong><div style="font-size:11px;color:var(--muted);">'+esc(a.detail)+'</div></div><button type="button" class="del-mini-btn" data-mdel-ag="'+esc(a.id)+'">✕</button></div>').join("")
+          : '<div class="empty-inline">ยังไม่มีข้อมูลหน่วยงานที่ลงทะเบียน</div>';
+        byId("agencies-modal-list").querySelectorAll("[data-mdel-ag]").forEach(b => b.onclick = () => { agencies = agencies.filter(a => a.id !== b.getAttribute("data-mdel-ag")); saveState(); renderAgenciesList(); renderInspector(); });
+      }
+
+      // Zero-Hardware Smartphone Meter Photo Uploader ($0 Day-1 Mode)
+      function openHwModal(tab) {
+        populateVillageSelects(selectedVillageId || VILLAGES[0].id);
+        if (tab) switchHwTab(tab);
+        updatePhoneVerdictPreview();
+        renderBench();
+        selectHwSpec("solar");
+        byId("modal-hw").classList.add("is-open");
+      }
+
+      function switchHwTab(tab) {
+        byId("modal-hw").querySelectorAll("[data-hwtab]").forEach(b => b.classList.toggle("is-active", b.getAttribute("data-hwtab") === tab));
+        byId("hw-pane-phone").style.display = tab === "phone" ? "flex" : "none";
+        byId("hw-pane-bench").style.display = tab === "bench" ? "flex" : "none";
+        byId("hw-pane-explode").style.display = tab === "explode" ? "flex" : "none";
+      }
+      byId("modal-hw").querySelectorAll("[data-hwtab]").forEach(b => b.onclick = () => switchHwTab(b.getAttribute("data-hwtab")));
+
+      function updatePhoneVerdictPreview() {
+        const n = parseFloat(byId("inp-ph-night").value) || 0, d = parseFloat(byId("inp-ph-dawn").value) || 0;
+        const lph = Math.max(0, Math.round(((d - n) * 1000) / 7));
+        byId("phone-calc-verdict").textContent = "📊 ผลคำนวณช่วงหลับ 7 ชม.: น้ำไหลเฉลี่ย " + lph.toLocaleString() + " ลิตร/ชม. ➔ " +
+          (lph > 500 ? "🚨 ท่อแตกรุนแรง (จัดคิวช่วยด่วน!)" : (lph > 140 ? "⚠️ พบน้ำรั่วซึมใต้ดิน (ควรทำ Step Test)" : "✅ ปกติ ไม่พบน้ำรั่วไหล"));
+      }
+      byId("inp-ph-night").oninput = updatePhoneVerdictPreview;
+      byId("inp-ph-dawn").oninput = updatePhoneVerdictPreview;
+
+      byId("inp-meter-file").onchange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          byId("phone-photo-placeholder").style.display = "none";
+          const img = byId("phone-photo-img"); img.src = ev.target.result; img.style.display = "block";
+          byId("phone-ocr-badge").style.display = "inline-flex";
+          awardPoints(20);
+        };
+        reader.readAsDataURL(file);
+      };
+
+      byId("btn-sample-photo").onclick = () => {
+        // Generate crisp SVG data URI of a real-style analog water meter face
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="150" viewBox="0 0 320 150"><rect width="320" height="150" rx="14" fill="#1e293b"/><circle cx="160" cy="75" r="64" fill="#f8fafc" stroke="#ca8a04" stroke-width="8"/><rect x="98" y="54" width="124" height="28" rx="4" fill="#0f172a" stroke="#22c55e" stroke-width="2.5"/><text x="160" y="74" text-anchor="middle" font-family="monospace" font-size="19" font-weight="bold" fill="#4ade80">00150.16</text><text x="160" y="102" text-anchor="middle" font-family="sans-serif" font-size="10" font-weight="bold" fill="#334155">VILLAGE MAIN METER (m³)</text></svg>';
+        byId("phone-photo-placeholder").style.display = "none";
+        const img = byId("phone-photo-img"); img.src = "data:image/svg+xml;utf8," + encodeURIComponent(svg); img.style.display = "block";
+        byId("phone-ocr-badge").style.display = "inline-flex";
+        awardPoints(15);
+      };
+
+      byId("btn-apply-phone-ocr").onclick = () => {
+        const vid = byId("sel-ph-village").value, v = VILLAGES.find(x => x.id === vid);
+        if (!v) return;
+        const n = parseFloat(byId("inp-ph-night").value) || 0, d = parseFloat(byId("inp-ph-dawn").value) || 0;
+        const lph = Math.max(0, Math.round(((d - n) * 1000) / 7));
+        v.photoMode = true; v.foggy = false; v.ocrConf = 99.2;
+        v.meterReading = String(Math.round(d * 100)).padStart(7, "0");
+        v.th.nightFlow = lph.toLocaleString() + " ล./ชม."; v.en.nightFlow = lph.toLocaleString() + " L/hr";
+        v.th.clipStatus = v.en.clipStatus = "📱 มือถือ 99.2%";
+        v.status = lph > 500 ? "critical" : (lph > 140 ? "warning" : "good");
+        v.th.statusTag = lph > 500 ? "ตรวจพบท่อแตก ($0)" : (lph > 140 ? "พบน้ำรั่ว ($0)" : "ปกติ ($0 OCR)");
+        v.th.pinSub = (lph > 500 ? "🚨 " : (lph > 140 ? "⚠️ " : "✅ ")) + v.th.nightFlow + " (มือถือ)";
+        delete repairsByVillage[v.id];
+        recomputePriorities(); rebuildVillages3D(); buildPins(); updateTopBadges(); saveState();
+        byId("modal-hw").classList.remove("is-open");
+        activeInspectorTab = "status"; selectVillage(v.id, "meter");
+      };
+
+      // Bench Lab & Phase-2 Blueprint
+      let benchFlow = 24, benchTotal = 148200, isExploded = true;
+      function renderBench() {
+        const digits = String(Math.floor(benchTotal/10)).padStart(7,"0").split("");
+        byId("bench-drum").innerHTML = digits.map((d,i) => '<span class="ocr-digit'+(i>=5?" frac":"")+'">'+d+'</span>').join("") + '<span style="font-size:11px;color:#94a3b8;margin-left:4px;">m³</span>';
+        byId("bench-delta-txt").textContent = "Δ +" + (benchFlow/1000).toFixed(3) + " m³ (" + benchFlow + " L/hr)";
+        byId("bench-verdict-box").innerHTML = benchFlow === 0 ? '<strong style="color:#059669;">✅ ปกติ: ไม่พบน้ำรั่วไหลช่วงกลางดึก</strong>'
+          : (benchFlow <= 60 ? '<strong style="color:#d97706;">⚠️ ตรวจพบน้ำหยดซึม ' + benchFlow + ' L/hr — แนะนำทำ Step Test</strong>' : '<strong style="color:#e11d48;">🚨 ท่อแตกฉุกเฉิน ' + benchFlow + ' L/hr — แจ้งเตือน SMS ทันที!</strong>');
+      }
+      byId("modal-hw").querySelectorAll("[data-bflow]").forEach(b => b.onclick = () => {
+        benchFlow = parseInt(b.getAttribute("data-bflow"),10);
+        byId("modal-hw").querySelectorAll("[data-bflow]").forEach(x => x.classList.toggle("is-active", x === b));
+        renderBench();
+      });
+      byId("btn-bench-snap").onclick = () => { benchTotal += benchFlow; awardPoints(10); renderBench(); };
+
+      const HW_INFO = {
+        solar:["☀️ ชั้นที่ 1: แผงโซลาร์ 2W & หลังคากันฝน","ชาร์จไฟอัตโนมัติสำหรับมิเตอร์กลางแจ้งเมื่อหมู่บ้านต้องการอัปเกรดในระยะที่ 2"],
+        esp:["🧠 ชั้นที่ 2: ESP32-CAM Deep-Sleep (firmware/ v0.1)","ตื่นถ่ายภาพรายชั่วโมงอัตโนมัติ กินไฟต่ำมาก คอมไพล์ผ่านบน CI แล้ว"],
+        led:["🔦 ชั้นที่ 3: วงไฟแฟลชลดเงาสะท้อน & ซองกันชื้น","จัดมุมแสงเฉียงลดแสงสะท้อนหน้าปัดกระจกตอนตี 2 พร้อมช่องใส่สารกันชื้น"],
+        hood:["🛡️ ชั้นที่ 4: ฝาครอบพิมพ์ 3D PETG (hardware/ v0.1)","สวมล็อกทับเรือนมิเตอร์มาตรฐานกันโคลนและแมลง"],
+        meter:["⏱️ ชั้นที่ 5: มิเตอร์น้ำหลักเดิมของหมู่บ้าน","สวมทับได้ใน 15 นาทีโดยไม่ต้องตัดต่อท่อหรือปิดน้ำทั้งหมู่บ้าน"]
+      };
+      function selectHwSpec(k) {
+        const offs = isExploded ? {solar:-24,esp:-10,led:3,hood:15,meter:26} : {solar:6,esp:11,led:15,hood:19,meter:23};
+        Object.keys(offs).forEach( key => { const g = byId("svg-ly-"+key); g.setAttribute("transform","translate(0,"+offs[key]+")"); g.classList.toggle("is-active", key===k); });
+        byId("hw-spec-detail").innerHTML = '<strong style="color:var(--brand);font-size:12.5px;">'+HW_INFO[k][0]+'</strong><div style="font-size:11.6px;">'+HW_INFO[k][1]+'</div>';
+      }
+      byId("hw-iso-svg").querySelectorAll(".iso-layer").forEach(g => g.onclick = () => selectHwSpec(g.getAttribute("data-hw")));
+      byId("btn-toggle-explode").onclick = () => { isExploded = !isExploded; byId("btn-toggle-explode").textContent = isExploded ? "🔩 ประกอบร่าง" : "💥 แยกชิ้นส่วน"; selectHwSpec("solar"); };
+
+      // Evidence & ROI Calculator (Grounded in PWA 0.50 kWh/m3 pumping figure)
+      function updateImpactCalc() {
+        const vc = parseInt(byId("rng-scale-villages").value, 10) || 50;
+        const m3 = vc * 1080, homes = vc * 120, hrs = vc * 90, kwh = Math.round(m3 * 0.5);
+        byId("val-scale-villages").textContent = vc + " หมู่บ้าน";
+        byId("kpi-water-yr").textContent = m3.toLocaleString() + " ลบ.ม./ปี";
+        byId("kpi-people").textContent = homes.toLocaleString() + " ครัวเรือน";
+        byId("kpi-pump-hrs").textContent = hrs.toLocaleString() + " ชม./ปี";
+        byId("kpi-co2").textContent = kwh.toLocaleString() + " kWh (~" + Math.round(kwh*0.48).toLocaleString() + " kg CO₂)";
+      }
+      byId("rng-scale-villages").oninput = updateImpactCalc;
+      byId("modal-impact").querySelectorAll("[data-imptab]").forEach(b => b.onclick = () => {
+        const t = b.getAttribute("data-imptab");
+        byId("modal-impact").querySelectorAll("[data-imptab]").forEach(x => x.classList.toggle("is-active", x === b));
+        byId("imp-pane-evidence").style.display = t === "evidence" ? "flex" : "none";
+        byId("imp-pane-calc").style.display = t === "calc" ? "flex" : "none";
+        byId("imp-pane-rubric").style.display = t === "rubric" ? "flex" : "none";
+        updateImpactCalc();
+      });
+      byId("modal-impact").querySelectorAll("[data-rubric-act]").forEach(b => b.onclick = () => {
+        const a = b.getAttribute("data-rubric-act");
+        byId("modal-impact").classList.remove("is-open");
+        if (a === "zero") openHwModal("phone");
+        else if (a === "sms") openSms();
+        else startJudgeTour();
+      });
+
+      // Multi-Channel SMS / LINE / WhatsApp
+      function renderSmsScreen() {
+        const vid = byId("sel-sms-village").value || VILLAGES[0].id, v = VILLAGES.find(x => x.id === vid) || VILLAGES[0], msgs = smsByVillage[vid] || [];
+        byId("sms-lcd-screen").innerHTML = msgs.length
+          ? msgs.map(m => '<div class="sms-msg '+m.dir+'">'+esc(m.text)+' <span style="opacity:.6;font-size:9.5px;">('+m.time+')</span></div>').join("")
+          : '<div class="sms-msg in">[NamJai] ชาวบ้าน '+esc(v.th.name)+' กด 1 เช็กเวลาซ่อมเสร็จ หรือกด 2 เช็กยอดเงินกองทุนประปา</div>';
+        byId("sms-lcd-screen").scrollTop = 9999;
+      }
+      function openSms() { unreadSmsCount = 0; byId("sms-unread-dot").style.display = "none"; populateVillageSelects(selectedVillageId || VILLAGES[0].id); renderSmsScreen(); byId("modal-sms").classList.add("is-open"); }
+      function sendSmsCmd(txt) {
+        const vid = byId("sel-sms-village").value, v = VILLAGES.find(x => x.id === vid) || VILLAGES[0], rep = repairsByVillage[vid];
+        pushSms(vid, "out", txt, false);
+        if (txt === "1") pushSms(vid, "in", rep?.status==="repairing" ? "ช่าง "+rep.tech+" กำลังซ่อม เสร็จราว "+rep.eta : "สถานะ "+v.th.name+": "+v.th.statusTag, false);
+        else if (txt === "2") pushSms(vid, "in", "กองทุนโปร่งใส "+v.th.name+": "+v.th.fundText, false);
+        else {
+          pushSms(vid, "in", "รับแจ้งเหตุและส่งเข้าห้องแชท "+v.th.name+" เรียบร้อย! (+15 แต้มน้ำใจ)", false);
+          if (!commentsByVillage[vid]) commentsByVillage[vid] = [];
+          commentsByVillage[vid].push({ author:"ชาวบ้าน ("+activeChannel.toUpperCase()+")", role:"resident", text:"📱 "+txt, time:nowStr() });
+          awardPoints(15); if (selectedVillageId === vid) renderInspector();
+        }
+        saveState(); renderSmsScreen();
+      }
+      byId("modal-sms").querySelectorAll("[data-chan]").forEach(b => b.onclick = () => {
+        activeChannel = b.getAttribute("data-chan");
+        byId("modal-sms").querySelectorAll("[data-chan]").forEach(x => x.classList.toggle("is-active", x === b));
+        byId("channel-header-net").textContent = activeChannel==="line" ? "🟢 LINE Official Webhook" : (activeChannel==="wa" ? "🌍 WhatsApp Cloud Webhook" : "📶 NAMJAI-SMS 2G (/api/sms/inbound)");
+      });
+      byId("sel-sms-village").onchange = renderSmsScreen;
+      byId("btn-sms-cmd1").onclick = () => sendSmsCmd("1");
+      byId("btn-sms-cmd2").onclick = () => sendSmsCmd("2");
+      byId("form-sms-send").onsubmit = e => { e.preventDefault(); const v = byId("inp-sms-text").value.trim(); if (!v) return; byId("inp-sms-text").value = ""; sendSmsCmd(v); };
+
+      // 4-Step Judges' Guided Tour
+      function runJudgeStep(s) {
+        currentJudgeStep = s;
+        byId("judge-tour-card").querySelectorAll(".jt-step-btn").forEach(b => b.classList.toggle("is-active", parseInt(b.getAttribute("data-jstep"),10) === s));
+        const tv = VILLAGES.find(x => x.id === "huai-mok") || VILLAGES[0];
+        if (s === 1) {
+          byId("jt-desc").textContent = "ขั้นที่ 1 (SEE): เริ่มได้ทันทีในงบฮาร์ดแวร์ $0! ภาพถ่ายมิเตอร์ช่วงกลางดึกของบ้านห้วยหมอกฟ้องอัตราไหลพุ่ง 4,850 ล./ชม. โดยไม่ต้องตัดต่อท่อ";
+          byId("btn-jt-action").textContent = "📸 เปิดโหมดถ่ายมิเตอร์ด้วยมือถือ ($0)";
+          isNightMode = true; document.body.classList.add("is-night"); updateTopBadges(); activeInspectorTab = "status"; selectVillage(tv.id, "meter");
+        } else if (s === 2) {
+          byId("jt-desc").textContent = "ขั้นที่ 2 (LOCATE): ไม่ต้องขุดสุ่ม! ผู้ดูแลไล่ปิดวาล์วในโหมด Step Test พอกดปิด 'วาล์วโซน B (คอสะพาน)' อัตราไหลลดฮวบ ชี้พิกัดจุดแตกแม่นยำ";
+          byId("btn-jt-action").textContent = "🧭 ปิดวาล์วโซน B ชี้พิกัดท่อแตก";
+          stepValvesByVillage[tv.id] = { a:true, b:false, c:true }; activeInspectorTab = "repair"; activeRepairSubTab = "diag"; selectVillage(tv.id, "pipe");
+        } else if (s === 3) {
+          byId("jt-desc").textContent = "ขั้นที่ 3 (FIX): ส่งทีมช่างอาสาขึ้นซ่อมบนแผนที่ 3D! แจ้งเวลาเสร็จ (16:30 น.) และปัญหาหน้างานผ่าน SMS/LINE/WhatsApp ให้ชาวบ้านไม่สงสัย";
+          byId("btn-jt-action").textContent = "📱 เปิดดูข้อความแจ้งเตือนบนมือถือชาวบ้าน";
+          repairsByVillage[tv.id] = { status:"repairing", tech:"ช่างสมศักดิ์ + อาสาน้ำใจ", eta:"16:30 น.", note:"ปิดวาล์วสะพานชั่วคราว กำลังเปลี่ยนท่อ PVC 3 นิ้ว", beforeFlowNum:4850, afterFlowNum:105, savedDaily:0 };
+          pushSms(tv.id, "in", "[NamJai] ช่างกำลังซ่อมท่อสะพาน เสร็จราว 16:30 น.", true);
+          sync3DVisuals(); activeInspectorTab = "repair"; activeRepairSubTab = "crew"; selectVillage(tv.id, "pipe");
+        } else {
+          byId("jt-desc").textContent = "ขั้นที่ 4 (PROVE): ซ่อมเสร็จยืนยันผล Proof-of-Repair! ท่อกลับมาสีฟ้าปกติ หักบัญชีกองทุนโปร่งใส และเทียบหลักฐานอ้างอิงจริงจาก World Bank & กปภ.";
+          byId("btn-jt-action").textContent = "📚 เปิดดูหลักฐานอ้างอิงจริง & ความคุ้มค่า";
+          repairsByVillage[tv.id] = { status:"completed", tech:"ช่างสมศักดิ์ + อาสาน้ำใจ", eta:"16:30 น.", note:"", beforeFlowNum:4850, afterFlowNum:105, savedDaily:(4850-105)*24, finishedAt:nowStr() };
+          if (!ledgerByVillage[tv.id]) ledgerByVillage[tv.id] = [];
+          ledgerByVillage[tv.id].unshift({ lbl:"ค่าท่อ PVC 3 นิ้ว (Proof-of-Repair " + nowStr() + ")", amt:"-฿8,500", plus:false });
+          applyRepairDone(tv, repairsByVillage[tv.id]); recomputePriorities(); awardPoints(50); sync3DVisuals(); updateTopBadges();
+          activeInspectorTab = "repair"; activeRepairSubTab = "crew"; selectVillage(tv.id, "all");
+        }
+      }
+      function startJudgeTour() { byId("judge-tour-card").classList.add("is-open"); runJudgeStep(1); }
+      byId("btn-judge-tour").onclick = startJudgeTour;
+      byId("btn-close-jt").onclick = () => byId("judge-tour-card").classList.remove("is-open");
+      byId("judge-tour-card").querySelectorAll(".jt-step-btn").forEach(b => b.onclick = () => runJudgeStep(parseInt(b.getAttribute("data-jstep"),10)));
+      byId("btn-jt-next").onclick = () => { if (currentJudgeStep < 4) runJudgeStep(currentJudgeStep + 1); else byId("judge-tour-card").classList.remove("is-open"); };
+      byId("btn-jt-action").onclick = () => {
+        if (currentJudgeStep === 1) openHwModal("phone");
+        else if (currentJudgeStep === 2) runJudgeStep(2);
+        else if (currentJudgeStep === 3) openSms();
+        else { updateImpactCalc(); byId("modal-impact").classList.add("is-open"); }
+      };
+
+      // Top Buttons, Add Village, Add Agency & Reset
+      byId("btn-open-hw").onclick = () => openHwModal("phone");
+      byId("btn-open-impact").onclick = () => { updateImpactCalc(); byId("modal-impact").classList.add("is-open"); };
+      byId("btn-open-sms").onclick = openSms;
+      byId("btn-help-first").onclick = () => { activeInspectorTab = "status"; selectVillage(VILLAGES[0].id, "pipe"); };
+      byId("btn-night-mode").onclick = () => { isNightMode = !isNightMode; document.body.classList.toggle("is-night", isNightMode); byId("btn-night-mode").classList.toggle("is-active", isNightMode); updateTopBadges(); sync3DVisuals(); if (selectedVillageId) renderInspector(); };
+      byId("btn-offline-mode").onclick = () => {
+        isOfflineSim = !isOfflineSim;
+        if (!isOfflineSim && offlineQueueCount > 0) {
+          byId("repair-alert-title").textContent = "📡 ซิงก์คิวออฟไลน์สำเร็จ (" + offlineQueueCount + " รายการ)";
+          byId("repair-alert-desc").textContent = "อัปโหลดข้อมูลที่บันทึกไว้ขณะอับสัญญาณขึ้นเซิร์ฟเวอร์ครบถ้วนแล้ว";
+          byId("repair-alert-banner").classList.add("is-open");
+          offlineQueueCount = 0;
+        }
+        recordOfflineAction();
+      };
+      byId("btn-close-repair-alert").onclick = () => byId("repair-alert-banner").classList.remove("is-open");
+      byId("btn-reset-cam").onclick = resetOverview;
+      byId("btn-rot-left").onclick = () => cam.gth -= .38;
+      byId("btn-rot-right").onclick = () => cam.gth += .38;
+      byId("btn-zoom-in").onclick = () => cam.gr = Math.max(15, cam.gr - 9);
+      byId("btn-zoom-out").onclick = () => cam.gr = Math.min(88, cam.gr + 9);
+      byId("btn-lang").onclick = () => { lang = lang === "th" ? "en" : "th"; updateTopBadges(); renderQueue(); updatePins(); renderInspector(); };
+
+      byId("btn-collapse-queue").onclick = () => { isQueueCollapsed = true; byId("left-queue-panel").classList.add("is-collapsed"); byId("btn-reopen-queue").classList.add("is-visible"); };
+      byId("btn-reopen-queue").onclick = () => { isQueueCollapsed = false; byId("left-queue-panel").classList.remove("is-collapsed"); byId("btn-reopen-queue").classList.remove("is-visible"); };
+
+      document.querySelectorAll(".filter-pill").forEach(p => p.onclick = () => {
+        activeFilter = p.getAttribute("data-filter");
+        document.querySelectorAll(".filter-pill").forEach(x => x.classList.toggle("is-active", x === p));
+        renderQueue(); updatePins();
+      });
+
+      byId("btn-open-add-village").onclick = () => { byId("err-add-village").classList.remove("is-visible"); byId("modal-add-village").classList.add("is-open"); };
+      document.querySelectorAll("[data-close]").forEach(b => b.onclick = () => byId(b.getAttribute("data-close")).classList.remove("is-open"));
+      document.querySelectorAll(".modal-backdrop").forEach(m => m.onclick = e => { if (e.target === m) m.classList.remove("is-open"); });
+
+      byId("form-add-village").onsubmit = e => {
+        e.preventDefault();
+        const nm = byId("inp-v-name").value.trim(), st = byId("inp-v-status").value, hm = parseInt(byId("inp-v-homes").value,10);
+        const br = byId("inp-v-broke").value.trim(), fx = byId("inp-v-fix").value.trim(), gd = byId("inp-v-good").value.trim();
+        if (!nm || !hm || !br || !fx) { byId("err-add-village").classList.add("is-visible"); return; }
+        const fl = Math.max(0, parseInt(byId("inp-v-flow").value,10) || 680), hv = Math.max(0, parseInt(byId("inp-v-fund-have").value,10)||0), nd = Math.max(0, parseInt(byId("inp-v-fund-need").value,10)||0);
+        const zones = { center:{x:4,z:-2}, west:{x:-32,z:3}, east:{x:31,z:1}, south:{x:7,z:25}, north:{x:-9,z:-16} };
+        const basePt = zones[byId("inp-v-zone").value] || {x:4,z:-2};
+        const pt = VILLAGES.some(v => Math.hypot(v.pos.x-basePt.x, v.pos.z-basePt.z) < 12) ? { x:basePt.x + (VILLAGES.length%3)*7 - 7, z:basePt.z + 8 } : basePt;
+        const pct = nd > 0 ? Math.min(100, Math.round((hv/nd)*100)) : 100;
+        const fTxt = nd > 0 ? "มี ฿"+hv.toLocaleString()+" / ต้องใช้ ฿"+nd.toLocaleString() : "เงินกองทุน ฿"+hv.toLocaleString();
+        const nv = {
+          id:"custom-"+Date.now(), isCustom:true, origOrder:VILLAGES.length+1, priority:VILLAGES.length+1, status:st, pos:pt, houseCount:Math.min(6,Math.max(3,Math.round(hm/30))), roofColor:0x4b8fa8, meterReading:"0018420", ocrConf:99.0, foggy:false, fundPct:pct,
+          th:{ rankLabel:"#"+(VILLAGES.length+1), statusTag:st==="critical"?"แจ้งซ่อมด่วน":(st==="warning"?"เฝ้าระวัง":"ปกติ"), pinSub:fl.toLocaleString()+" ล./ชม.", name:nm, issueShort:br.split(/\n/)[0], summary:"ข้อมูลหมู่บ้านที่เพิ่มโดยผู้ใช้", nightFlow:fl.toLocaleString()+" ล./ชม.", households:hm+" ครัวเรือน", clipStatus:"📱 OCR 99%", fundText:fTxt, fundNote:"บันทึกโดยชุมชน", broke:br.split(/\n/).filter(Boolean), fix:fx.split(/\n/).filter(Boolean), good:gd?gd.split(/\n/).filter(Boolean):["ระบบพื้นฐานทำงานปกติ"] },
+          en:{ rankLabel:"#"+(VILLAGES.length+1), statusTag:st, pinSub:fl.toLocaleString()+" L/hr", name:nm, issueShort:br.split(/\n/)[0], summary:"User-added village", nightFlow:fl.toLocaleString()+" L/hr", households:hm+" homes", clipStatus:"📱 OCR 99%", fundText:fTxt, fundNote:"Community entry", broke:br.split(/\n/).filter(Boolean), fix:fx.split(/\n/).filter(Boolean), good:gd?gd.split(/\n/).filter(Boolean):["Core systems normal"] }
+        };
+        VILLAGES.push(nv); recomputePriorities(); saveState(); rebuildVillages3D(); buildPins(); updateTopBadges();
+        byId("form-add-village").reset(); byId("modal-add-village").classList.remove("is-open"); selectVillage(nv.id, "all");
+      };
+
+      byId("form-add-agency").onsubmit = e => {
+        e.preventDefault();
+        const nm = byId("inp-ag-name").value.trim(), dt = byId("inp-ag-detail").value.trim();
+        if (!nm || !dt) { byId("err-add-agency").classList.add("is-visible"); return; }
+        agencies.push({ id:"ag-"+Date.now(), name:nm, type:byId("inp-ag-type").value, villageId:byId("inp-ag-village").value, detail:dt });
+        byId("inp-ag-name").value = ""; byId("inp-ag-detail").value = ""; saveState(); renderAgenciesList(); renderInspector();
+      };
+
+      byId("btn-reset-demo").onclick = () => {
+        if (!isResetConfirming) {
+          isResetConfirming = true; byId("btn-reset-demo").classList.add("is-confirming"); updateTopBadges();
+          clearTimeout(resetTimer); resetTimer = setTimeout(() => { isResetConfirming = false; byId("btn-reset-demo").classList.remove("is-confirming"); updateTopBadges(); }, 3500);
+          return;
+        }
+        clearTimeout(resetTimer); isResetConfirming = false; byId("btn-reset-demo").classList.remove("is-confirming");
+        try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+        VILLAGES = JSON.parse(INIT_JSON); agencies = []; commentsByVillage = {}; repairsByVillage = {}; stepValvesByVillage = {}; smsByVillage = {}; ledgerByVillage = {};
+        stewardPoints = 0; unreadSmsCount = 0; offlineQueueCount = 0; activeFilter = "all";
+        byId("sms-unread-dot").style.display = "none"; byId("judge-tour-card").classList.remove("is-open"); byId("repair-alert-banner").classList.remove("is-open");
+        rebuildVillages3D(); buildPins(); updateTopBadges(); resetOverview();
+      };
+
+      loadState();
+      updateTopBadges();
+      buildPins();
+      renderQueue();
+      init3D();
+    })();
+  </script>
+</body>
 </html>

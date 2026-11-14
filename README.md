@@ -24,8 +24,7 @@ See. Locate. Fix. Prove.
 ```bash
 python -m venv .venv && . .venv/bin/activate
 cd server && pip install -r requirements-dev.txt
-SEED_DEMO=1 uvicorn namjai.app:app --port 8000 &                # API + simulated villages
-cd ../web && npm ci && npm run dev                              # http://localhost:5173/demo
+SEED_DEMO=1 uvicorn namjai.app:app --port 8000                  # web (web/index.html) + API: http://localhost:8000
 ```
 
 ## How it fits together

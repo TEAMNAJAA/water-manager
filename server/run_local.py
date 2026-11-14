@@ -30,7 +30,7 @@ def main():
     if a.demo:
         os.environ["SEED_DEMO"] = "1"
     base = f"http://{lan_ip()}:{a.port}"
-    web = (HERE.parent / "web" / "dist").is_dir()
+    web = (HERE.parent / "web" / "index.html").is_file()
     print(f"""
   NamJai is starting.
 
@@ -38,7 +38,7 @@ def main():
   Clip (AI-on-the-edge) webhook URI:            {base}/api/hook/aiedge/<Clip id>
      -> get the Clip id and API key in the app: Caretaker tools -> Connect a Clip
   Database: {os.environ["DATABASE_URL"]}
-  {"" if web else "Web app not built yet: only the API runs. Build it once with:  cd web && npm ci && npm run build"}
+  {"" if web else "web/index.html is missing: only the API runs."}
   Keep this window open. Stop with Ctrl+C.
 """)
     import uvicorn

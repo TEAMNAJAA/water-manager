@@ -19,7 +19,7 @@ python -m namjai.setup --village "Home test" --name "Your name" --phone 08123456
 python run_local.py                 # prints the Wi-Fi address and the Clip webhook URI
 ```
 
-The server serves the web app too when `web/dist` exists (`cd web && npm ci && npm run build`).
+The server also serves the web page in `web/index.html`.
 Data goes to `server/namjai-local.db`. Step-by-step: [docs/field-test.md](../docs/field-test.md).
 
 Defaults to SQLite (`namjai.db`). Set `DATABASE_URL` for Postgres (Neon), `ADMIN_TOKEN` for admin routes.
